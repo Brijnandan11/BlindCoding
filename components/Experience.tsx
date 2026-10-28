@@ -378,7 +378,6 @@ function Home() {
 function Login() {
   const [team, setTeam] = useState(""),
     [name, setName] = useState(""),
-    [branch, setBranch] = useState(""),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(false);
   return (
@@ -418,7 +417,7 @@ function Login() {
           setLoading(true);
           setError("");
           try {
-            await api("auth/login", "POST", { team, name, branch });
+            await api("auth/login", "POST", { team, name });
             window.location.href = "/instructions";
           } catch (e) {
             setError((e as Error).message);
@@ -443,8 +442,6 @@ function Login() {
         />
         <label htmlFor="participant-name">PARTICIPANT NAME</label>
         <input id="participant-name" placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" maxLength={100} />
-        <label htmlFor="participant-branch">BRANCH / DEPARTMENT</label>
-        <input id="participant-branch" placeholder="e.g. Information Technology" value={branch} onChange={(e) => setBranch(e.target.value)} required maxLength={100} />
         {error && (
           <p role="alert" className="error">
             {error}
