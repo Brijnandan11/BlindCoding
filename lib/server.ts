@@ -156,7 +156,14 @@ export async function handle(method: string, route: string, body: Record<string,
   if (route === "admin/login" && method === "POST") {
     await checkLoginLimit("admin");
     const expected = process.env.ADMIN_PASSWORD || "";
-    if (!expected || (process.env.NODE_ENV === "production" && expected.length < 24))
+    const minimumPasswordLength = Number(process.env.ADMIN_PASSWORD_MIN_LENGTH || 24);
+    if (
+      !expected ||
+      (process.env.NODE_ENV === "production" &&
+        (!Number.isInteger(minimumPasswordLength) ||
+          minimumPasswordLength < 10 ||
+          expected.length < minimumPasswordLength))
+    )
       throw new Error("Service unavailable. Configure a strong admin password.");
     const supplied = String(body.password || "");
     if (
