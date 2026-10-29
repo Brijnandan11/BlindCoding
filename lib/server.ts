@@ -4,6 +4,7 @@ import { checkLoginLimit } from "./rate-limit";
 import { cacheDelete, cached, withRecordLock } from "./cache";
 import { get, create, put, list, live, remove, createGroup, usePostgres } from "./store";
 import { sqlCreateParticipantForTeam } from "./postgres";
+import { codeMatchPercent } from "./code-match";
 import {
   Attempt,
   Participant,
@@ -90,7 +91,12 @@ export async function state(known?: Awaited<ReturnType<typeof context>>) {
         }
       : null,
     phase: a ? phase(a, !!sub) : "WAITING",
-    submission: sub ? publicSubmission(sub) : null,
+    submission: sub
+      ? publicSubmission({
+          ...sub,
+          score: Number(codeMatchPercent(sub.source, a?.challengeSource || c?.source || "").toFixed(2)),
+        })
+      : null,
     serverNow: Date.now(),
     contest: c
       ? {
@@ -217,9 +223,23 @@ export async function leaderboard(contest?: Contest | null) {
   return cached("leaderboard", 5, () => buildLeaderboard(selected));
 }
 async function buildLeaderboard(contest: Contest) {
-  const [subs, people] = await Promise.all([list<Submission>("submission"), list<Participant>("participant")]);
+  const [subs, people, attempts] = await Promise.all([
+    list<Submission>("submission"),
+    list<Participant>("participant"),
+    list<Attempt>("attempt"),
+  ]);
   const currentRound = contest?.roundId;
-  return rank(subs.filter((s) => s.status === "RESULT" && s.contestId === contest.id && s.roundId === currentRound)).map((s, i) => ({
+  const results = subs
+    .filter((submission) => ["RESULT", "ERROR"].includes(submission.status) && submission.contestId === contest.id && submission.roundId === currentRound)
+    .map((submission) => {
+      const attempt = attempts.find((item) => item.id === submission.attemptId);
+      return {
+        ...submission,
+        status: "RESULT" as const,
+        score: Number(codeMatchPercent(submission.source, attempt?.challengeSource || contest.source).toFixed(2)),
+      };
+    });
+  return rank(results).map((s, i) => ({
     rank: i + 1,
     id: s.id,
     score: s.score ?? 0,

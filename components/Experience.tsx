@@ -357,7 +357,7 @@ function Home() {
               title: "Make your move.",
               time: "⌃ ↵",
               unit: "CTRL + ENTER",
-              text: "One shortcut. One final submission. Your accuracy comes first. Speed breaks the tie.",
+              text: "One shortcut. One final submission. Your code match comes first. Speed breaks the tie.",
               class: "submit",
             },
           ].map((x) => (
@@ -510,8 +510,8 @@ function Instructions({ publicRules }: { publicRules: boolean }) {
     "Recreate the program from memory. No code, timer, or cursor is shown.",
     `You have up to ${timing.codingMinutes} minutes to type. Refreshing does not reset your timer.`,
     "Press Ctrl + Enter or F10 to submit. Only one final submission is allowed.",
-    "Accuracy determines your rank. Completion time breaks score ties.",
-    "Submit early if you finish. Otherwise, your last saved code is scored automatically at the shared deadline.",
+    "Code match percentage determines your rank. Completion time breaks score ties.",
+    "Submit early if you finish. Otherwise, your last saved code is compared with the reference code at the shared deadline.",
   ];
   return (
     <section className="content-page rules-page">
@@ -814,7 +814,7 @@ function Contest() {
         <Clock size={48} />
         <h1>Time’s up.</h1>
         <p>
-          Your saved code is being scored automatically. The leaderboard will open when everyone’s
+          Your saved code is being matched against the reference. The leaderboard will open when everyone’s
           results are ready.
         </p>
         <Link href="/leaderboard" className="button primary">
@@ -912,8 +912,10 @@ function Leaderboard() {
           pendingJudging: d.pendingJudging,
         });
         setError("");
-        if (d.locked && d.availableAt > d.serverNow)
-          delay = Math.min(delay, d.availableAt - d.serverNow + 50);
+        if (d.locked && d.availableAt !== null)
+          delay = d.availableAt > d.serverNow
+            ? Math.min(delay, d.availableAt - d.serverNow)
+            : 250;
       } catch (e) {
         if (active) setError((e as Error).message);
       } finally {
@@ -941,8 +943,8 @@ function Leaderboard() {
         </h1>
         <p>
           {release.availableAt && release.availableAt <= Date.now()
-            ? `The contest has ended. Scoring ${release.pendingJudging || 0} remaining submissions before publishing the full leaderboard.`
-            : "Everyone shares the same contest deadline. The full leaderboard appears after time ends and all saved code has been scored."}
+            ? `The contest has ended. Matching ${release.pendingJudging || 0} remaining submissions before publishing the full leaderboard.`
+            : "Everyone shares the same contest deadline. The full leaderboard appears after time ends and all saved code has been matched."}
         </p>
         {release.availableAt ? (
           <p>
@@ -965,11 +967,11 @@ function Leaderboard() {
     <section className="content-page">
       <div className="page-heading leaderboard-heading">
         <div>
-          <span className="eyebrow blue">ACCURACY FIRST. ALWAYS.</span>
+          <span className="eyebrow blue">CODE MATCH FIRST. ALWAYS.</span>
           <h1>
             The <span>leaderboard.</span>
           </h1>
-          <p>Individual brilliance. Ranked by accuracy, then by time.</p>
+          <p>Individual brilliance. Ranked by code match, then by time.</p>
         </div>
         <span className="update-pill">
           <span className="live-dot" /> UPDATES EVERY 10s
@@ -977,7 +979,7 @@ function Leaderboard() {
       </div>
       <div className="leaderboard-toolbar">
         <span>
-          <Trophy size={20} /> {rows.length} evaluated participants
+          <Trophy size={20} /> {rows.length} matched participants
         </span>
         <input
           aria-label="Search participants"
@@ -993,7 +995,7 @@ function Leaderboard() {
               <th>RANK</th>
               <th>PARTICIPANT</th>
               <th>TEAM</th>
-              <th>ACCURACY</th>
+              <th>CODE MATCH</th>
               <th>COMPLETION TIME</th>
             </tr>
           </thead>
@@ -1031,7 +1033,7 @@ function Leaderboard() {
           <div className="empty-state">
             <Trophy size={40} />
             <h3>The first place is still yours to take.</h3>
-            <p>Rankings appear here after submissions are evaluated.</p>
+            <p>Rankings appear here after submissions are matched against the reference code.</p>
             <Link href="/login" className="text-link">
               Take the challenge <ArrowUpRight />
             </Link>
@@ -1039,7 +1041,7 @@ function Leaderboard() {
         ) : null}
       </div>
       <p className="table-note">
-        <ShieldCheck size={16} /> Scores are out of 100. Time is used only when accuracy scores are
+        <ShieldCheck size={16} /> Match percentages are out of 100. Time is used only when match scores are
         tied.
       </p>
     </section>
@@ -1112,7 +1114,7 @@ function Result() {
             Continue <ArrowRight />
           </Link>
         </>
-      ) : s.status === "RESULT" ? (
+      ) : ["RESULT", "ERROR"].includes(s.status) ? (
         <motion.div {...reveal}>
           <span className="success-icon">
             <Check size={30} />
@@ -1125,22 +1127,9 @@ function Result() {
             {s.score?.toFixed(2)}
             <span>%</span>
           </div>
-          <span className="eyebrow">FINAL ACCURACY</span>
+          <span className="eyebrow">CODE MATCH PERCENTAGE</span>
           <p>Your leaderboard unlocks after your full {state.contest?.codingMinutes || 15}-minute coding period ends.</p>
-          <div className="score-breakdown">
-            {[
-              ["Functional", s.functional, 50],
-              ["Structure", s.structure, 30],
-              ["Compilation", s.syntax, 20],
-            ].map(([label, value, max]) => (
-              <div key={label}>
-                <span>{label}</span>
-                <strong>
-                  {value} <small>/ {max}</small>
-                </strong>
-              </div>
-            ))}
-          </div>
+          <p>Your percentage compares your saved code with this event’s reference code. Whitespace and comments do not affect the match.</p>
           <p>
             Completion time <strong>{time(s.completionMs)}</strong>
           </p>
@@ -1160,16 +1149,16 @@ function Result() {
           </p>
           <p>
             {s.status === "ERROR"
-              ? "The judge encountered an issue. Contact your organizer; your submission is safely stored."
-              : "Your code is safely locked in. The judge will take it from here."}
+              ? "The code matcher encountered an issue. Contact your organizer; your submission is safely stored."
+              : "Your code is safely locked in. It will be compared with the reference code."}
           </p>
           <div className="judging-track">
             <span className="live-dot" />
             {s.status === "JUDGING"
-              ? "EVALUATING YOUR CODE"
+              ? "MATCHING YOUR CODE"
               : s.status === "ERROR"
-                ? "JUDGE NEEDS ATTENTION"
-                : "IN THE JUDGING QUEUE"}
+                ? "MATCHER NEEDS ATTENTION"
+                : "IN THE MATCHING QUEUE"}
           </div>
 
           <Link href="/leaderboard" className="text-link">
@@ -1325,7 +1314,7 @@ function Admin() {
           ["Viewing", data.participants.filter((p: any) => p.phase === "VIEWING").length],
           ["Coding", data.participants.filter((p: any) => p.phase === "CODING").length],
           ["Submitted", data.submissions.length],
-          ["Evaluated", data.submissions.filter((s: any) => s.status === "RESULT").length],
+          ["Matched", data.submissions.filter((s: any) => s.status === "RESULT").length],
         ].map(([label, value]) => (
           <div key={label}>
             <span>{label}</span>
@@ -1359,7 +1348,7 @@ function Admin() {
             action(async () => {
               const { rows } = await api("admin/export");
               const csv = [
-                ["Rank", "Participant", "Team", "Accuracy", "Time"],
+                ["Rank", "Participant", "Team", "Code match (%)", "Time"],
                 ...rows.map((r: Row) => [r.rank, r.name, r.team, r.score, time(r.completionMs)]),
               ]
                 .map((row) =>
@@ -1561,11 +1550,11 @@ function Admin() {
                         onClick={() =>
                           action(async () => {
                             await api("admin/retry", "POST", { id: submission.id });
-                            setMessage("Submission requeued for judging.");
+                            setMessage("Submission requeued for code matching.");
                           })
                         }
                       >
-                        Retry judge
+                        Retry code match
                       </button>
                     )}
                     <button
@@ -1613,7 +1602,7 @@ function Admin() {
                   })}>
                     <strong>{event.name}</strong><span>{event.status}</span>
                   </button>
-                  <button className="text-button" disabled={busy} onClick={() => action(async () => {
+          <button className="text-button" disabled={busy} onClick={() => action(async () => {
                     const status = event.status === "OPEN" ? "CLOSED" : "OPEN";
                     await api("admin/contest/status", "POST", { eventId: event.id, status });
                     setMessage(`${event.name} ${status.toLowerCase()}.`);
