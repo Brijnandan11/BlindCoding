@@ -69,7 +69,19 @@ export async function state(known?: Awaited<ReturnType<typeof context>>) {
     phase: a ? phase(a, !!sub) : "WAITING",
     submission: sub ? publicSubmission(sub) : null,
     serverNow: Date.now(),
-    contest: c ? { name: c.name, status: c.status } : null,
+    contest: c
+      ? {
+          name: c.name,
+          status: c.status,
+          ...contestTiming(c),
+          ...(a
+            ? {
+                readingMinutes: Math.max(1, Math.ceil((a.viewingEndsAt - a.startedAt) / 60000)),
+                codingMinutes: Math.max(1, Math.ceil((a.codingEndsAt - a.viewingEndsAt) / 60000)),
+              }
+            : {}),
+        }
+      : null,
   };
 }
 export function publicSubmission(s: Submission) {
@@ -97,10 +109,12 @@ export async function participantLeaderboard() {
   const now = Date.now();
   const s = await session();
   let availableAt: number | null = null;
+  let codingMinutes = contestTiming(await get<Contest>("contest", CONTEST)).codingMinutes;
   let unlocked = !!s?.admin;
   if (s?.participantId) {
     const attempt = await get<Attempt>("attempt", id(s.participantId + CONTEST));
     availableAt = attempt?.codingEndsAt ?? null;
+    if (attempt) codingMinutes = Math.max(1, Math.ceil((attempt.codingEndsAt - attempt.viewingEndsAt) / 60000));
     unlocked = !!attempt && leaderboardReleased(attempt, now);
   } else if (!s?.admin) {
     const contest = await get<Contest>("contest", CONTEST);
@@ -114,6 +128,7 @@ export async function participantLeaderboard() {
   return {
     locked: !unlocked,
     availableAt,
+    codingMinutes,
     serverNow: now,
     rows: unlocked ? await leaderboard() : [],
   };
@@ -227,14 +242,9 @@ export async function handle(method: string, route: string, body: Record<string,
       if (!Number.isFinite(codingMinutes) || !Number.isInteger(codingMinutes) || codingMinutes < 1) {
         throw new Error("Blind coding time must be a valid positive number of minutes.");
       }
-      if (
-        (await list("attempt")).length &&
-        (body.source !== old?.source ||
-          JSON.stringify(body.tests) !== JSON.stringify(old?.tests) ||
-          old?.readingMinutes !== timing.readingMinutes ||
-          old?.codingMinutes !== timing.codingMinutes)
-      )
-        throw new Error("Source, test cases and timing settings are locked after the first attempt starts.");
+      const attempts = await list<Attempt>("attempt");
+      if (attempts.length && (body.source !== old?.source || JSON.stringify(body.tests) !== JSON.stringify(old?.tests)))
+        throw new Error("Source and test cases are locked after the first attempt starts.");
       const c: Contest = {
         id: CONTEST,
         name: String(body.name || "Blind Coding 2026").slice(0, 200),

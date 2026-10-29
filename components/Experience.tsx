@@ -28,6 +28,7 @@ type State = {
   serverNow: number;
   participant: { name: string; code: string; team: string; branch?: string };
   attempt: null | { id: string; startedAt: number; viewingEndsAt: number; codingEndsAt: number };
+  contest?: { readingMinutes?: number; codingMinutes?: number };
   submission: null | {
     status: string;
     score?: number;
@@ -487,21 +488,27 @@ function Login() {
     </section>
   );
 }
-const rules = [
-  "You compete individually. Each team nominates exactly three participants.",
-  "Study the given C program for 5 minutes. The timer starts when you begin.",
-  "After 5 minutes, the entire contest screen becomes black.",
-  "Recreate the program from memory. No code, timer, or cursor is shown.",
-  "You have up to 15 minutes to type. Refreshing does not reset your timer.",
-  "Press Ctrl + Enter or F10 to submit. Only one final submission is allowed.",
-  "Accuracy determines your rank. Completion time breaks score ties.",
-  "Submit before the deadline for partial credit. Expired drafts are not submitted.",
-];
 function Instructions({ publicRules }: { publicRules: boolean }) {
   const router = useRouter();
   const [checked, setChecked] = useState(false),
     [loading, setLoading] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [timing, setTiming] = useState({ readingMinutes: 5, codingMinutes: 15 });
+  useEffect(() => {
+    api<{ contest?: { readingMinutes?: number; codingMinutes?: number } }>("state")
+      .then((s) => setTiming({ readingMinutes: s.contest?.readingMinutes || 5, codingMinutes: s.contest?.codingMinutes || 15 }))
+      .catch(() => {});
+  }, []);
+  const rules = [
+    "You compete individually. Each team nominates exactly three participants.",
+    `Study the given C program for ${timing.readingMinutes} minutes. The timer starts when you begin.`,
+    `After ${timing.readingMinutes} minutes, the entire contest screen becomes black.`,
+    "Recreate the program from memory. No code, timer, or cursor is shown.",
+    `You have up to ${timing.codingMinutes} minutes to type. Refreshing does not reset your timer.`,
+    "Press Ctrl + Enter or F10 to submit. Only one final submission is allowed.",
+    "Accuracy determines your rank. Completion time breaks score ties.",
+    "Submit before the deadline for partial credit. Expired drafts are not submitted.",
+  ];
   return (
     <section className="content-page rules-page">
       <motion.div {...reveal} className="page-heading">
@@ -568,7 +575,7 @@ function Instructions({ publicRules }: { publicRules: boolean }) {
                   }
                 }}
               >
-                {loading ? "Starting…" : "Start my 5 minutes"}
+                {loading ? "Starting…" : `Start my ${timing.readingMinutes} minutes`}
                 <ArrowRight size={19} />
               </button>
               {error && (
@@ -821,7 +828,7 @@ function Contest() {
           <div className="study-title">
             <div>
               <span className="eyebrow blue">LOOK CLOSELY. REMEMBER EVERYTHING.</span>
-              <h1>Your next 5 minutes.</h1>
+              <h1>Your next {localFallback.contest?.readingMinutes || 5} minutes.</h1>
             </div>
             <span>
               <Code size={18} /> C / Read only
@@ -850,7 +857,7 @@ function Leaderboard() {
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [query, setQuery] = useState(""),
-    [release, setRelease] = useState<{ locked: boolean; availableAt: number | null } | null>(null);
+    [release, setRelease] = useState<{ locked: boolean; availableAt: number | null; codingMinutes?: number } | null>(null);
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
@@ -860,7 +867,7 @@ function Leaderboard() {
         const d = await api("leaderboard");
         if (!active) return;
         setRows(d.rows);
-        setRelease({ locked: d.locked, availableAt: d.availableAt });
+        setRelease({ locked: d.locked, availableAt: d.availableAt, codingMinutes: d.codingMinutes });
         setError("");
         if (d.locked && d.availableAt > d.serverNow)
           delay = Math.min(delay, d.availableAt - d.serverNow + 50);
@@ -884,7 +891,7 @@ function Leaderboard() {
       <section className="content-page result-page" aria-live="polite">
         <span className="eyebrow blue">RANKINGS ARE LOCKED</span>
         <Clock size={48} aria-hidden="true" />
-        <h1>The leaderboard opens after your 15 minutes.</h1>
+        <h1>The leaderboard opens after your {release.codingMinutes || 15} minutes.</h1>
         <p>
           Submitting early locks in your code. Rankings stay hidden until your full coding period
           ends.
@@ -1058,7 +1065,7 @@ function Result() {
             <span>%</span>
           </div>
           <span className="eyebrow">FINAL ACCURACY</span>
-          <p>Your leaderboard unlocks after your full 15-minute coding period ends.</p>
+          <p>Your leaderboard unlocks after your full {state.contest?.codingMinutes || 15}-minute coding period ends.</p>
           <div className="score-breakdown">
             {[
               ["Functional", s.functional, 50],
@@ -1087,7 +1094,7 @@ function Result() {
           </span>
           <h1>Submission received.</h1>
           <p>
-            The leaderboard becomes available only after your full 15-minute coding period ends,
+            The leaderboard becomes available only after your full {state.contest?.codingMinutes || 15}-minute coding period ends,
             even when you submit early.
           </p>
           <p>
@@ -1483,8 +1490,9 @@ function Admin() {
             </label>
           </div>
           <p>
-            Study time and coding time are saved per contest and are locked after the first attempt
-            starts. Closing prevents new starts; existing timers continue.
+            Reading and blind coding times apply to new attempts when saved. Participants who have
+            already started keep the deadlines assigned to their attempt. Source and test cases
+            lock after the first attempt starts. Closing prevents new starts; existing timers continue.
           </p>
           <label>
             C SOURCE CODE
