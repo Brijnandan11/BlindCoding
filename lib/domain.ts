@@ -18,6 +18,7 @@ export type Contest = {
   readingMinutes?: number;
   codingMinutes?: number;
   startedAt?: number;
+  roundId?: string;
 };
 export type Participant = { id: string; name: string; code: string; teamId: string; team: string; branch?: string };
 export type Attempt = {
@@ -27,6 +28,9 @@ export type Attempt = {
   startedAt: number;
   viewingEndsAt: number;
   codingEndsAt: number;
+  roundId?: string;
+  challengeSource?: string;
+  challengeTests?: { input: string; output: string; points: number }[];
   draft: string;
   revision: number;
 };
@@ -35,6 +39,7 @@ export type Submission = {
   attemptId: string;
   participantId: string;
   contestId: string;
+  roundId?: string;
   source: string;
   submittedAt: number;
   completionMs: number;

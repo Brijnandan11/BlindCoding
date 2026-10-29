@@ -15,7 +15,7 @@ npm run dev
 
 Copy settings from `.env.example` into a private environment file. For Supabase, copy the PostgreSQL pooler connection URI from Dashboard → Connect (Session mode for the persistent backend/judge). Keep the same `STORE_NAMESPACE` on backend and judge, even when they use different database URLs. Set a random admin password of at least 24 characters. No default admin password, demo account or automatic sample contest exists.
 
-Sign in at `/admin`, save the official C source, weighted test cases and timing in DRAFT, create teams, distribute codes privately, then open the contest when everyone is ready. Opening starts one shared reading and coding clock for all participants. Timing locks when the clock starts. Source and test cases lock after the first attempt starts.
+Sign in at `/admin`, save the official C source, weighted test cases and timing in DRAFT, create teams, distribute codes privately, then open the contest when everyone is ready. Opening starts one shared reading and coding clock for all participants. After a round ends and judging finishes, close and reopen the contest to run another round; previous attempts and results are kept.
 
 ## Deployment
 
@@ -48,6 +48,8 @@ node scripts/verify-sandbox.cjs
 node scripts/verify-leaderboard.mjs
 npm run test:load
 ```
+
+For a complete isolated browser-to-judge journey, run `npm run test:load -- 1 unused postgres journey 3042`. This starts temporary PostgreSQL and Redis containers, a local production server and the Docker judge, then verifies registration, a contest attempt, code submission and scoring, leaderboard release, and a second round for the same participant. It does not use the production database. Docker and k6 must be installed; stop other test servers using port 3042 first.
 
 The default load suite provisions private, temporary PostgreSQL and Redis containers and starts a local production server plus Docker judges. It requires Docker, k6 and a built sandbox image. No production database is used. Metrics, synthetic codes and cleanup reports stay in ignored `artifacts/load-tests/` directories, excluded from Docker build context.
 

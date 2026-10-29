@@ -1522,10 +1522,9 @@ function Admin() {
             </label>
           </div>
           <p>
-            Saving OPEN starts one shared contest clock for everyone. Set the reading and blind
-            coding times first; both are locked once the clock starts. Saved code is submitted for
-            scoring automatically at the shared deadline. Source and test cases lock after the
-            first attempt starts.
+            Saving OPEN starts a shared clock for everyone in this round. When the round ends and
+            judging finishes, close it and open it again to let the same participants take a new
+            round. Each round keeps its own attempts and results.
           </p>
           <label>
             C SOURCE CODE

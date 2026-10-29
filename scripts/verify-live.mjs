@@ -45,7 +45,9 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 let people = [],
   attemptId,
-  teamId;
+  teamId,
+  adminToken;
+const attemptIds = [];
 const sessions = [];
 async function request(route, method = "GET", data) {
   const r = await context.request.fetch(base + "/api/" + route, {
@@ -61,6 +63,23 @@ async function collectSession() {
   const token = (await context.cookies()).find((c) => c.name === "bc_session")?.value;
   if (token) sessions.push(createHash("sha256").update(token).digest("hex").slice(0, 32));
 }
+async function saveContest(status) {
+  const r = await context.request.fetch(base + "/api/admin/contest", {
+    method: "POST",
+    data: {
+      name: fixture.name,
+      source: fixture.source,
+      status,
+      readingMinutes: fixture.readingMinutes || 5,
+      codingMinutes: fixture.codingMinutes || 15,
+      tests: fixture.tests,
+    },
+    headers: { Origin: base, Cookie: "bc_session=" + adminToken },
+  });
+  const body = await r.json();
+  assert.ok(r.ok(), "admin/contest: " + JSON.stringify(body));
+  return body;
+}
 async function remove(kind, id) {
   await removeRecord(kind, id);
 }
@@ -70,6 +89,8 @@ try {
   await page.locator("#password").fill(process.env.ADMIN_PASSWORD);
   await page.getByRole("button", { name: "Enter dashboard" }).click();
   await page.getByRole("button", { name: "Team management" }).waitFor();
+  adminToken = (await context.cookies()).find((cookie) => cookie.name === "bc_session")?.value;
+  assert.ok(adminToken, "Admin session was not created.");
   await collectSession();
   const overview = await request("admin/overview");
 
@@ -85,7 +106,7 @@ try {
   assert.ok(response.ok());
   people = (await response.json()).participants;
   teamId = people[0].teamId;
-  await put("contest", fixture.id, { ...fixture, status: "OPEN" });
+  await saveContest("OPEN");
   await page.goto(base + "/login");
   await page.locator("#code").fill(people[0].code);
   await page.getByRole("button", { name: "Enter contest", exact: true }).click();
@@ -99,6 +120,7 @@ try {
   );
   const state = await request("attempt/state");
   attemptId = state.attempt.id;
+  attemptIds.push(attemptId);
   assert.equal(state.phase, "VIEWING");
   assert.equal(state.attempt.viewingEndsAt - state.attempt.startedAt, 300000);
   assert.equal(state.attempt.codingEndsAt - state.attempt.viewingEndsAt, 900000);
@@ -218,11 +240,37 @@ try {
   console.log(
     "PASS: PostgreSQL → BullMQ → isolated GCC sandbox → 100/100 result → individual leaderboard.",
   );
+  const firstRound = await get("attempt", attemptId);
+  await saveContest("CLOSED");
+  await saveContest("OPEN");
+  const repeatedState = await request("attempt/start", "POST", {});
+  const repeatedAttemptId = repeatedState.attempt.id;
+  attemptIds.push(repeatedAttemptId);
+  assert.notEqual(repeatedAttemptId, attemptId, "A retake must create a separate attempt record.");
+  const repeatedAttempt = await get("attempt", repeatedAttemptId);
+  assert.notEqual(repeatedAttempt.roundId, firstRound.roundId, "A retake must create a new round.");
+  await put("attempt", repeatedAttemptId, {
+    ...repeatedAttempt,
+    viewingEndsAt: Date.now() - 1000,
+    codingEndsAt: Date.now() + 900000,
+  });
+  await request("submission", "POST", { source: fixture.source });
+  const repeatDeadline = Date.now() + 300000;
+  let repeatedSubmission;
+  while (Date.now() < repeatDeadline) {
+    repeatedSubmission = await get("submission", repeatedAttemptId);
+    if (repeatedSubmission?.status === "RESULT") break;
+    if (repeatedSubmission?.status === "ERROR") throw new Error("Retake judge failed: " + repeatedSubmission.error);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  assert.equal(repeatedSubmission?.status, "RESULT", "Retake judge did not finish within five minutes");
+  assert.equal(repeatedSubmission.score, 100);
+  console.log("PASS: the same participant completed a second contest round and received a separate score.");
 } finally {
   await browser.close();
-  if (attemptId) {
-    await remove("submission", attemptId).catch((e) => console.error("Test cleanup:", e.message));
-    await remove("attempt", attemptId).catch((e) => console.error("Test cleanup:", e.message));
+  for (const id of attemptIds) {
+    await remove("submission", id).catch((e) => console.error("Test cleanup:", e.message));
+    await remove("attempt", id).catch((e) => console.error("Test cleanup:", e.message));
   }
   for (const person of people)
     await remove("participant", person.id).catch((e) => console.error("Test cleanup:", e.message));

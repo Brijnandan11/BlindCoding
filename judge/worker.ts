@@ -60,6 +60,8 @@ const worker = new Worker(
     if (!s || s.status === "RESULT") return;
     const c = await get<Contest>("contest", s.contestId);
     if (!c) throw new Error("Missing contest");
+    const attempt = await get<Attempt>("attempt", s.attemptId);
+    const tests = attempt?.challengeTests || c.tests;
     mark("read");
     await put("submission", s.id, { ...s, status: "JUDGING" });
     mark("startWrite");
@@ -70,7 +72,7 @@ const worker = new Worker(
       await writeFile(join(dir, "source.c"), s.source, { mode: 0o644 });
       await writeFile(
         join(dir, "tests.json"),
-        JSON.stringify(c.tests.map((t) => ({ input: t.input }))),
+        JSON.stringify(tests.map((t) => ({ input: t.input }))),
         { mode: 0o644 },
       );
       const r = await execute(
@@ -120,15 +122,15 @@ const worker = new Worker(
             evaluation.compiled &&
             result.code === 0 &&
             (result.output || "").trim().split(/\s+/).join(" ") ==
-              c.tests[i].output.trim().split(/\s+/).join(" "),
+            tests[i].output.trim().split(/\s+/).join(" "),
           error: result.error,
         }),
       );
       const syntax = evaluation.compiled ? 20 : 0;
-      const total = c.tests.reduce((n, t) => n + t.points, 0);
+      const total = tests.reduce((n, t) => n + t.points, 0);
       const functional =
         (evaluation.results.reduce(
-          (n: number, t: { passed: boolean }, i: number) => n + (t.passed ? c.tests[i].points : 0),
+          (n: number, t: { passed: boolean }, i: number) => n + (t.passed ? tests[i].points : 0),
           0,
         ) /
           total) *
@@ -180,6 +182,7 @@ async function reconcile() {
           attemptId: attempt.id,
           participantId: attempt.participantId,
           contestId: attempt.contestId,
+          roundId: attempt.roundId,
           source: attempt.draft,
           submittedAt: attempt.codingEndsAt,
           completionMs: attempt.codingEndsAt - attempt.viewingEndsAt,
