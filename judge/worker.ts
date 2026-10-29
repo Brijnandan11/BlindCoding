@@ -56,14 +56,18 @@ const worker = new Worker(
       timings[name] = Math.round(now - checkpoint);
       checkpoint = now;
     };
-    const s = await get<Submission>("submission", job.data.id);
-    if (!s || s.status === "RESULT") return;
+    const s = await withRecordLock("submission:" + job.data.id, async () => {
+      const current = await get<Submission>("submission", job.data.id);
+      if (!current || current.status === "RESULT") return null;
+      await put("submission", current.id, { ...current, status: "JUDGING" });
+      return current;
+    });
+    if (!s) return;
     const c = await get<Contest>("contest", s.contestId);
-    if (!c) throw new Error("Missing contest");
+    if (!c) return;
     const attempt = await get<Attempt>("attempt", s.attemptId);
     const tests = attempt?.challengeTests || c.tests;
     mark("read");
-    await put("submission", s.id, { ...s, status: "JUDGING" });
     mark("startWrite");
     const dir = await mkdtemp(join(tmpdir(), "blind-judge-"));
     const name = "bc-" + s.id;
@@ -136,16 +140,23 @@ const worker = new Worker(
           total) *
         50;
       const structure = similarity(s.source, attempt?.challengeSource || c.source) * 30;
-      await put("submission", s.id, {
-        ...s,
-        status: "RESULT",
-        syntax,
-        functional: Number(functional.toFixed(2)),
-        structure: Number(structure.toFixed(2)),
-        score: Number((syntax + functional + structure).toFixed(2)),
-        tests: evaluation.results,
-        error: evaluation.error,
+      const saved = await withRecordLock("submission:" + s.id, async () => {
+        const current = await get<Submission>("submission", s.id);
+        const currentContest = await get<Contest>("contest", s.contestId);
+        if (!current || !currentContest) return false;
+        await put("submission", s.id, {
+          ...current,
+          status: "RESULT",
+          syntax,
+          functional: Number(functional.toFixed(2)),
+          structure: Number(structure.toFixed(2)),
+          score: Number((syntax + functional + structure).toFixed(2)),
+          tests: evaluation.results,
+          error: evaluation.error,
+        });
+        return true;
       });
+      if (!saved) return;
       await cacheDelete("leaderboard");
       mark("resultWrite");
     } finally {

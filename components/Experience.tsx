@@ -1618,8 +1618,8 @@ function Admin() {
                     await api("admin/contest/status", "POST", { eventId: event.id, status });
                     setMessage(`${event.name} ${status.toLowerCase()}.`);
                   })}>{event.status === "OPEN" ? "Close event" : "Open event"}</button>
-                  <button className="text-button" disabled={busy || event.status === "OPEN"} onClick={() => {
-                    if (window.confirm(`Delete ${event.name} and all of its saved attempts and submissions?`))
+                  <button className="text-button" disabled={busy} onClick={() => {
+                    if (window.confirm(`Permanently delete ${event.name}, including any active attempts and saved submissions?`))
                       action(async () => {
                         await api("admin/contest/delete", "POST", { eventId: event.id });
                         setMessage("Event and its saved data deleted.");

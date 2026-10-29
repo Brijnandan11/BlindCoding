@@ -57,9 +57,24 @@ export async function context() {
   const s = await session();
   if (!s?.participantId) throw new Error("Please sign in with your participant code.");
   const [p, c] = await Promise.all([get<Participant>("participant", s.participantId), getActiveContest()]);
-  const a = c ? await get<Attempt>("attempt", id(s.participantId + c.id + (c.roundId || ""))) : null;
   if (!p) throw new Error("Participant not found.");
-  return { p, a, c };
+  const currentAttempt = c
+    ? await get<Attempt>("attempt", id(s.participantId + c.id + (c.roundId || "")))
+    : null;
+  if (currentAttempt) return { p, a: currentAttempt, c };
+  const [attempts, contests] = await Promise.all([
+    list<Attempt>("attempt"),
+    list<Contest>("contest"),
+  ]);
+  const liveAttempt = attempts
+    .filter((attempt) => attempt.participantId === p.id && attempt.codingEndsAt > Date.now())
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .find((attempt) => contests.some((item) => item.id === attempt.contestId));
+  if (liveAttempt) {
+    const contest = contests.find((item) => item.id === liveAttempt.contestId)!;
+    return { p, a: liveAttempt, c: contest };
+  }
+  return { p, a: null, c };
 }
 export async function state(known?: Awaited<ReturnType<typeof context>>) {
   const { p, a, c } = known || (await context());
@@ -153,29 +168,32 @@ async function assertParticipantCanDelete(participantId: string) {
       throw new Error("Wait for this participant's submissions to finish judging before deleting them.");
   }
 }
+async function withRecordLockRetry<T>(key: string, action: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      return await withRecordLock(key, action);
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("update is already in progress") || attempt === 19)
+        throw error;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+  }
+  throw new Error("Could not acquire the event record lock.");
+}
 async function deleteContestRecords(contest: Contest) {
   const [attempts, submissions] = await Promise.all([list<Attempt>("attempt"), list<Submission>("submission")]);
   const ownedAttempts = attempts.filter((attempt) => attempt.contestId === contest.id);
   const ownedSubmissions = submissions.filter((submission) => submission.contestId === contest.id);
   for (const attempt of ownedAttempts) {
-    const submission = ownedSubmissions.find((item) => item.attemptId === attempt.id);
-    if (submission?.status === "QUEUED" || submission?.status === "JUDGING")
-      throw new Error("Wait for all event submissions to finish judging before deleting the event.");
-  }
-  for (const attempt of ownedAttempts) {
-    await withRecordLock("draft:" + attempt.id, () =>
-      withRecordLock("submission:" + attempt.id, async () => {
-        const currentSubmission = await get<Submission>("submission", attempt.id);
-        if (currentSubmission && ["QUEUED", "JUDGING"].includes(currentSubmission.status))
-          throw new Error("Wait for all event submissions to finish judging before deleting the event.");
+    await withRecordLockRetry("draft:" + attempt.id, () =>
+      withRecordLockRetry("submission:" + attempt.id, async () => {
         await remove("submission", attempt.id);
         await remove("attempt", attempt.id);
       }),
     );
   }
   for (const submission of ownedSubmissions)
-    if (!ownedAttempts.some((attempt) => attempt.id === submission.attemptId))
-      await remove("submission", submission.id);
+    await withRecordLockRetry("submission:" + submission.id, () => remove("submission", submission.id));
   await remove("contest", contest.id);
   const [active, selected, remaining] = await Promise.all([
     get<{ id?: string }>("setting", ACTIVE_CONTEST),
@@ -214,14 +232,27 @@ export async function participantLeaderboard() {
   const now = Date.now();
   const s = await session();
   let availableAt: number | null = null;
-  const contest = await getActiveContest();
-  const timing = contestTiming(contest);
-  let codingMinutes = timing.codingMinutes;
+  let contest = await getActiveContest();
   let unlocked = !!s?.admin;
-  const [allAttempts, allSubmissions] = await Promise.all([
+  const [allAttempts, allSubmissions, contests] = await Promise.all([
     list<Attempt>("attempt"),
     list<Submission>("submission"),
+    list<Contest>("contest"),
   ]);
+  if (s?.participantId && contest) {
+    const hasCurrentAttempt = allAttempts.some(
+      (attempt) => attempt.participantId === s.participantId && attempt.contestId === contest!.id && attempt.roundId === contest!.roundId,
+    );
+    if (!hasCurrentAttempt) {
+      const previousAttempt = allAttempts
+        .filter((attempt) => attempt.participantId === s.participantId)
+        .sort((a, b) => b.startedAt - a.startedAt)[0];
+      const previousContest = contests.find((item) => item.id === previousAttempt?.contestId);
+      if (previousContest) contest = previousContest;
+    }
+  }
+  const timing = contestTiming(contest);
+  let codingMinutes = timing.codingMinutes;
   const currentRound = contest?.roundId;
   const attempts = allAttempts.filter((attempt) => attempt.contestId === contest?.id && attempt.roundId === currentRound);
   const submissions = allSubmissions.filter((submission) => submission.contestId === contest?.id && submission.roundId === currentRound);
@@ -260,7 +291,7 @@ export async function participantLeaderboard() {
       return submission?.status !== "RESULT" && submission?.status !== "ERROR";
     }).length,
     serverNow: now,
-    rows: unlocked ? await leaderboard() : [],
+    rows: unlocked ? await leaderboard(contest) : [],
   };
 }
 
@@ -402,32 +433,7 @@ export async function handle(method: string, route: string, body: Record<string,
           const contests = await list<Contest>("contest");
           if (contests.some((item) => item.id !== event.id && item.status === "OPEN"))
             throw new Error("Close the currently open event before opening another.");
-          const attempts = await list<Attempt>("attempt");
-          const submissions = await list<Submission>("submission");
-          const unfinishedOtherEvent = contests.some((otherEvent) => {
-            if (otherEvent.id === event.id || !otherEvent.roundId) return false;
-            return attempts.some((attempt) => {
-              if (attempt.contestId !== otherEvent.id || attempt.roundId !== otherEvent.roundId) return false;
-              const submission = submissions.find((item) => item.attemptId === attempt.id);
-              return attempt.codingEndsAt > Date.now() || submission?.status === "QUEUED" || submission?.status === "JUDGING";
-            });
-          });
-          if (unfinishedOtherEvent)
-            throw new Error("Wait for the other event's timers and judging to finish before opening this one.");
           if (!event.source || !event.tests?.length) throw new Error("Save the event source and test cases before opening it.");
-          if (event.status !== "OPEN" && event.startedAt && event.roundId) {
-            const previousAttempts = attempts.filter(
-              (attempt) => attempt.contestId === event.id && attempt.roundId === event.roundId,
-            );
-            if (
-              previousAttempts.some((attempt) => attempt.codingEndsAt > Date.now()) ||
-              previousAttempts.some((attempt) => {
-                const submission = submissions.find((item) => item.attemptId === attempt.id);
-                return submission?.status === "QUEUED" || submission?.status === "JUDGING";
-              })
-            )
-              throw new Error("Wait for the event timer and judging to finish before reopening it.");
-          }
         }
         const reopening = status === "OPEN" && event.status !== "OPEN";
         const updated: Contest = {
@@ -446,7 +452,6 @@ export async function handle(method: string, route: string, body: Record<string,
       await withRecordLock("contest-admin", async () => {
         const event = await get<Contest>("contest", String(body.eventId || ""));
         if (!event) throw new Error("Event not found.");
-        if (event.status === "OPEN") throw new Error("Close the event before deleting it.");
         await deleteContestRecords(event);
       });
       return { ok: true };
