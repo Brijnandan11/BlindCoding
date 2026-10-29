@@ -57,12 +57,38 @@ async function api<T = any>(path: string, method = "GET", body?: unknown): Promi
   if (!r.ok) throw new Error(data.error || "Something went wrong.");
   return data;
 }
+const LOCAL_ATTEMPT_KEY = "blind-coding-attempt-v1";
 const time = (ms: number) =>
   `${Math.floor(Math.max(0, ms) / 60000)
     .toString()
     .padStart(2, "0")}:${Math.floor((Math.max(0, ms) / 1000) % 60)
     .toString()
     .padStart(2, "0")}`;
+function readStoredAttempt() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(LOCAL_ATTEMPT_KEY);
+    if (!raw) return null;
+    const state = JSON.parse(raw) as State | null;
+    if (!state?.attempt) return null;
+    const activeWindow = Date.now() < state.attempt.codingEndsAt;
+    return activeWindow ? state : null;
+  } catch {
+    return null;
+  }
+}
+function writeStoredAttempt(state: State | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (!state?.attempt) {
+      window.localStorage.removeItem(LOCAL_ATTEMPT_KEY);
+      return;
+    }
+    window.localStorage.setItem(LOCAL_ATTEMPT_KEY, JSON.stringify(state));
+  } catch {
+    // Ignore storage failures so the contest still runs in-memory.
+  }
+}
 const reveal = {
   initial: { opacity: 0, y: 22 },
   whileInView: { opacity: 1, y: 0 },
@@ -533,7 +559,8 @@ function Instructions({ publicRules }: { publicRules: boolean }) {
                   setLoading(true);
                   try {
                     await document.documentElement.requestFullscreen?.().catch(() => {});
-                    await api("attempt/start", "POST", {});
+                    const next = await api<State>("attempt/start", "POST", {});
+                    writeStoredAttempt(next);
                     router.push("/contest");
                   } catch (e) {
                     setError((e as Error).message);
@@ -562,6 +589,7 @@ function Contest() {
     [source, setSource] = useState(""),
     [now, setNow] = useState(Date.now()),
     [error, setError] = useState("");
+  const localFallback = state ?? readStoredAttempt();
   const refreshing = useRef(false);
   const saving = useRef(false);
   const offset = useRef(0),
@@ -577,6 +605,7 @@ function Contest() {
       const s = await api<State>("attempt/state");
       offset.current = s.serverNow - Date.now();
       setState(s);
+      writeStoredAttempt(s);
       setError("");
     } catch (e) {
       const message = (e as Error).message;
@@ -595,15 +624,15 @@ function Contest() {
     const id = setInterval(() => setNow(Date.now() + offset.current), 50);
     return () => clearInterval(id);
   }, []);
-  const localPhase = state?.submission
+  const localPhase = localFallback?.submission
     ? "SUBMITTED"
-    : state?.attempt
-      ? now < state.attempt.viewingEndsAt
+    : localFallback?.attempt
+      ? now < localFallback.attempt.viewingEndsAt
         ? "VIEWING"
-        : now < state.attempt.codingEndsAt
+        : now < localFallback.attempt.codingEndsAt
           ? "CODING"
           : "EXPIRED"
-      : state?.phase;
+      : localFallback?.phase;
   useEffect(() => {
     let active = true;
     if (localPhase === "VIEWING") {
@@ -684,7 +713,7 @@ function Contest() {
       await refresh();
     }
   }
-  if (!state) return <div className="black-screen" />;
+  if (!localFallback) return <div className="black-screen" />;
   if (localPhase === "CODING")
     return (
       <div
@@ -694,7 +723,7 @@ function Contest() {
       >
         <div className="blind-timer" aria-live="polite" aria-atomic="true">
           <small>TIME LEFT</small>
-          <strong>{time(Math.max(0, (state.attempt?.codingEndsAt || now) - now))}</strong>
+          <strong>{time(Math.max(0, (localFallback.attempt?.codingEndsAt || now) - now))}</strong>
         </div>
         <textarea
           ref={input}
@@ -772,10 +801,10 @@ function Contest() {
         </span>
         <div className="study-count">
           <small>SCREEN GOES DARK IN</small>
-          <strong>{time((state?.attempt?.viewingEndsAt || now) - now)}</strong>
+          <strong>{time((localFallback.attempt?.viewingEndsAt || now) - now)}</strong>
         </div>
       </header>
-      {!state ? (
+      {!localFallback ? (
         <div className="loading-block">
           {error || "Connecting to your attempt…"}
           {error && <Link href="/login">Participant login →</Link>}
@@ -802,7 +831,7 @@ function Contest() {
             <div className="study-code-top">
               <span>challenge.c</span>
               <span>
-                {state.participant.name} · {state.participant.team}
+                {localFallback.participant.name} · {localFallback.participant.team}
               </span>
             </div>
             <pre>{source || "Loading source securely…"}</pre>

@@ -218,14 +218,13 @@ export async function handle(method: string, route: string, body: Record<string,
       if (!usePostgres && process.env.NODE_ENV === "production" && body.status === "OPEN")
         throw new Error("Configure PostgreSQL before opening a production contest.");
       const old = await get<Contest>("contest", CONTEST);
-      const timing = contestTiming({
-        readingMinutes: Number(body.readingMinutes),
-        codingMinutes: Number(body.codingMinutes),
-      });
-      if (!Number.isFinite(Number(body.readingMinutes)) || timing.readingMinutes <= 0) {
+      const readingMinutes = Number(body.readingMinutes);
+      const codingMinutes = Number(body.codingMinutes);
+      const timing = contestTiming({ readingMinutes, codingMinutes });
+      if (!Number.isFinite(readingMinutes) || !Number.isInteger(readingMinutes) || readingMinutes < 1) {
         throw new Error("Reading time must be a valid positive number of minutes.");
       }
-      if (!Number.isFinite(Number(body.codingMinutes)) || timing.codingMinutes <= 0) {
+      if (!Number.isFinite(codingMinutes) || !Number.isInteger(codingMinutes) || codingMinutes < 1) {
         throw new Error("Blind coding time must be a valid positive number of minutes.");
       }
       if (

@@ -55,6 +55,11 @@ test("default contest timing is five minutes reading and fifteen minutes coding"
   assert.deepEqual(t, { readingMinutes: 5, codingMinutes: 15, readingMs: 300000, codingMs: 900000 });
 });
 
+test("one-minute contest windows remain valid and are not reset to defaults", () => {
+  const t = contestTiming({ readingMinutes: 1, codingMinutes: 1 } as ContestTiming);
+  assert.deepEqual(t, { readingMinutes: 1, codingMinutes: 1, readingMs: 60000, codingMs: 60000 });
+});
+
 test("custom contest timing clamps to valid ranges", () => {
   const t = contestTiming({ readingMinutes: 2, codingMinutes: 8 } as ContestTiming);
   assert.deepEqual(t, { readingMinutes: 2, codingMinutes: 8, readingMs: 120000, codingMs: 480000 });

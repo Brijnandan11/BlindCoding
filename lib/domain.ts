@@ -48,10 +48,10 @@ export type Submission = {
 export function contestTiming(input?: Partial<ContestTiming | Contest> | null): ContestTiming {
   const rawReadingMinutes = Number(input?.readingMinutes ?? DEFAULT_READING_MINUTES);
   const rawCodingMinutes = Number(input?.codingMinutes ?? DEFAULT_CODING_MINUTES);
-  const readingMinutes = Number.isFinite(rawReadingMinutes) && rawReadingMinutes > 0 && rawReadingMinutes <= 180
+  const readingMinutes = Number.isFinite(rawReadingMinutes) && rawReadingMinutes >= 1
     ? rawReadingMinutes
     : DEFAULT_READING_MINUTES;
-  const codingMinutes = Number.isFinite(rawCodingMinutes) && rawCodingMinutes > 0 && rawCodingMinutes <= 180
+  const codingMinutes = Number.isFinite(rawCodingMinutes) && rawCodingMinutes >= 1
     ? rawCodingMinutes
     : DEFAULT_CODING_MINUTES;
   return {
