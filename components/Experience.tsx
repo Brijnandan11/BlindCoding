@@ -1427,6 +1427,8 @@ function Admin() {
                 name: f.get("name"),
                 source: f.get("source"),
                 status: f.get("status"),
+                readingMinutes: Number(f.get("readingMinutes")),
+                codingMinutes: Number(f.get("codingMinutes")),
                 tests,
               });
               setMessage("Contest settings saved.");
@@ -1459,7 +1461,6 @@ function Admin() {
                 name="readingMinutes"
                 type="number"
                 min={1}
-                max={180}
                 step={1}
                 defaultValue={data.contest?.readingMinutes ?? 5}
                 required
@@ -1471,7 +1472,6 @@ function Admin() {
                 name="codingMinutes"
                 type="number"
                 min={1}
-                max={180}
                 step={1}
                 defaultValue={data.contest?.codingMinutes ?? 15}
                 required
