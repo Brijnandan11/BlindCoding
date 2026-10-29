@@ -1436,24 +1436,6 @@ function Admin() {
           }}
         >
           <h2>Set the challenge.</h2>
-          <div className="two-inputs">
-            <label>
-              CONTEST NAME
-              <input
-                name="name"
-                required
-                defaultValue={data.contest?.name || "Blind Coding 2026"}
-              />
-            </label>
-            <label>
-              STATUS
-              <select name="status" defaultValue={data.contest?.status || "DRAFT"}>
-                <option>DRAFT</option>
-                <option>OPEN</option>
-                <option>CLOSED</option>
-              </select>
-            </label>
-          </div>
           <div className="three-inputs">
             <label>
               READING TIME (MINUTES)
@@ -1480,6 +1462,24 @@ function Admin() {
             <label>
               LANGUAGE
               <input value="C" readOnly />
+            </label>
+          </div>
+          <div className="two-inputs">
+            <label>
+              CONTEST NAME
+              <input
+                name="name"
+                required
+                defaultValue={data.contest?.name || "Blind Coding 2026"}
+              />
+            </label>
+            <label>
+              STATUS
+              <select name="status" defaultValue={data.contest?.status || "DRAFT"}>
+                <option>DRAFT</option>
+                <option>OPEN</option>
+                <option>CLOSED</option>
+              </select>
             </label>
           </div>
           <p>
