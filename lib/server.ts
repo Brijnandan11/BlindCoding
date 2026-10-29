@@ -674,38 +674,28 @@ export async function handle(method: string, route: string, body: Record<string,
       throw new Error("Configure PostgreSQL before starting a production contest.");
     let c = currentContest;
     if (c?.status !== "OPEN") throw new Error("The contest is not open yet.");
-    if (!c.startedAt) {
-      await withRecordLock("contest-start", async () => {
-        const current = await get<Contest>("contest", c!.id);
-        if (current?.status !== "OPEN") throw new Error("The contest is not open yet.");
-        if (!current.startedAt) await put("contest", current.id, { ...current, startedAt: Date.now() });
-        c = await get<Contest>("contest", current.id);
-      });
-    }
     if (!c) throw new Error("The contest is not open yet.");
     const timing = contestTiming(c);
-    const contestStart = c.startedAt || Date.now();
-    if (Date.now() >= contestStart + timing.readingMs + timing.codingMs)
-      throw new Error("This contest has ended. Contact the organizer.");
+    const attemptStart = Date.now();
     const attempt: Attempt = {
       id: id(p.id + c.id + (c.roundId || "")),
       participantId: p.id,
       contestId: c.id,
       roundId: c.roundId,
-      startedAt: contestStart,
-      viewingEndsAt: contestStart + timing.readingMs,
-      codingEndsAt: contestStart + timing.readingMs + timing.codingMs,
+      startedAt: attemptStart,
+      viewingEndsAt: attemptStart + timing.readingMs,
+      codingEndsAt: attemptStart + timing.readingMs + timing.codingMs,
       challengeSource: c.source,
       challengeTests: c.tests,
       draft: "",
       revision: 0,
     };
-    try {
+    return withRecordLock("attempt:" + attempt.id, async () => {
+      const existingAttempt = await get<Attempt>("attempt", attempt.id);
+      if (existingAttempt) return state({ p, a: existingAttempt, c });
       await create("attempt", attempt.id, attempt);
-    } catch (e) {
-      if (!(await get("attempt", attempt.id))) throw e;
-    }
-    return state({ p, a: attempt, c });
+      return state({ p, a: attempt, c });
+    });
   }
   if (!a) throw new Error("Start your attempt first.");
   const existing = await get<Submission>("submission", a.id);
