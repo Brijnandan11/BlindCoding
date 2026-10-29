@@ -1314,9 +1314,9 @@ function Admin() {
             {t === "monitor"
               ? "Live monitor"
               : t === "teams"
-                ? "Team management"
+                ? "Teams and participants"
                 : t === "contest"
-                  ? "Contest settings"
+                  ? "Events"
                   : "Submissions"}
           </button>
         ))}
@@ -1394,43 +1394,112 @@ function Admin() {
           )}
         </div>
       ) : tab === "teams" ? (
-        <form
-          className="admin-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const f = new FormData(e.currentTarget);
-            const form = e.currentTarget;
-            action(async () => {
-              const r = await api("admin/teams", "POST", { name: f.get("team") });
-              setMessage(`Team ${r.team.name} created. Students can now register with this team name and their own name.`);
-              form.reset();
-            });
-          }}
-        >
-          <h2>Create a team.</h2>
-          <p>Students choose this team name and register themselves with their own name.</p>
-          <label>
-            TEAM NAME
-            <input name="team" placeholder="Code Warriors" required maxLength={100} />
-          </label>
-          <button className="button primary" disabled={busy}>
-            <Plus /> Create team
-          </button>
-        </form>
+        <>
+          <form
+            className="admin-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const f = new FormData(e.currentTarget);
+              const form = e.currentTarget;
+              action(async () => {
+                const r = await api("admin/teams", "POST", { name: f.get("team") });
+                setMessage(`Team ${r.team.name} created.`);
+                form.reset();
+              });
+            }}
+          >
+            <h2>Create a team.</h2>
+            <label>
+              TEAM NAME
+              <input name="team" placeholder="Code Warriors" required maxLength={100} />
+            </label>
+            <button className="button primary" disabled={busy}>
+              <Plus /> Create team
+            </button>
+          </form>
+          <form
+            className="admin-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const f = new FormData(e.currentTarget);
+              const form = e.currentTarget;
+              action(async () => {
+                await api("admin/participant", "POST", {
+                  teamId: f.get("teamId"),
+                  name: f.get("name"),
+                  branch: f.get("branch"),
+                });
+                setMessage("Participant added to the team.");
+                form.reset();
+              });
+            }}
+          >
+            <h2>Add a participant.</h2>
+            <div className="two-inputs">
+              <label>
+                TEAM
+                <select name="teamId" required defaultValue="">
+                  <option value="" disabled>Select a team</option>
+                  {data.teams.map((team: any) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                </select>
+              </label>
+              <label>
+                PARTICIPANT NAME
+                <input name="name" required maxLength={100} />
+              </label>
+            </div>
+            <label>
+              BRANCH
+              <input name="branch" maxLength={100} />
+            </label>
+            <button className="button primary" disabled={busy || !data.teams.length}>
+              <Plus /> Add participant
+            </button>
+          </form>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>TEAM</th><th>MEMBERS</th><th>PARTICIPANTS</th><th>MANAGE</th></tr></thead>
+              <tbody>
+                {data.teams.map((team: any) => (
+                  <tr key={team.id}>
+                    <td>{team.name}</td>
+                    <td>{(team.participants || []).length}</td>
+                    <td>{data.participants.filter((p: any) => p.teamId === team.id).map((p: any) => (
+                      <span key={p.id} className="admin-member">
+                        {p.name}{" "}
+                        <button className="text-button" disabled={busy} onClick={() => {
+                          if (window.confirm(`Delete ${p.name} and their saved attempts and submissions?`))
+                            action(async () => { await api("admin/participant/delete", "POST", { participantId: p.id }); });
+                        }}>Delete member</button>
+                      </span>
+                    ))}</td>
+                    <td><button className="text-button" disabled={busy} onClick={() => {
+                      if (window.confirm(`Delete ${team.name}, all its members, attempts, and submissions?`))
+                        action(async () => { await api("admin/team/delete", "POST", { teamId: team.id }); });
+                    }}>Delete team</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!data.teams.length && <div className="empty-state">Create a team to begin managing participants.</div>}
+          </div>
+        </>
       ) : tab === "submissions" ? (
         <div className="table-wrap">
           <table>
             <thead>
-              <tr>
+            <tr>
+                <th>EVENT</th>
                 <th>PARTICIPANT</th>
                 <th>STATUS</th>
                 <th>SCORE</th>
-                <th>CODE REVIEW</th>
+                <th>MANAGE</th>
               </tr>
             </thead>
             <tbody>
               {data.submissions.map((submission: any) => (
                 <tr key={submission.id}>
+                  <td>{submission.eventName}</td>
                   <td>
                     {data.participants.find((p: any) => p.id === submission.participantId)?.name ||
                       "Participant"}
@@ -1464,6 +1533,19 @@ function Admin() {
                         Retry judge
                       </button>
                     )}
+                    <button
+                      className="text-button"
+                      disabled={busy || submission.status === "QUEUED" || submission.status === "JUDGING"}
+                      onClick={() => {
+                        if (window.confirm("Delete this submission and its attempt from the database?"))
+                          action(async () => {
+                            await api("admin/submission/delete", "POST", { id: submission.id });
+                            setMessage("Submission and attempt deleted.");
+                          });
+                      }}
+                    >
+                      Delete submission
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -1473,9 +1555,48 @@ function Admin() {
             <div className="empty-state">No final submissions received yet.</div>
           )}
         </div>
-      ) : (
-        <form
-          key={data.contest?.id}
+      ) : tab === "contest" ? (
+        <>
+          <div className="admin-form event-manager">
+            <div className="event-manager-heading">
+              <div>
+                <h2>Manage events.</h2>
+                <p>Create events, choose one to edit, and open or close each event.</p>
+              </div>
+              <button className="button primary" disabled={busy} onClick={() => action(async () => {
+                await api("admin/contest/create", "POST", {});
+                setMessage("Event created. Add its source and test cases, then open it when ready.");
+              })}>
+                <Plus /> New event
+              </button>
+            </div>
+            <div className="event-list">
+              {data.contests.map((event: any) => (
+                <div className={event.id === data.selectedContestId ? "event-row selected" : "event-row"} key={event.id}>
+                  <button className="event-select" disabled={busy} onClick={() => action(async () => {
+                    await api("admin/contest/select", "POST", { eventId: event.id });
+                  })}>
+                    <strong>{event.name}</strong><span>{event.status}</span>
+                  </button>
+                  <button className="text-button" disabled={busy} onClick={() => action(async () => {
+                    const status = event.status === "OPEN" ? "CLOSED" : "OPEN";
+                    await api("admin/contest/status", "POST", { eventId: event.id, status });
+                    setMessage(`${event.name} ${status.toLowerCase()}.`);
+                  })}>{event.status === "OPEN" ? "Close event" : "Open event"}</button>
+                  <button className="text-button" disabled={busy || event.status === "OPEN"} onClick={() => {
+                    if (window.confirm(`Delete ${event.name} and all of its saved attempts and submissions?`))
+                      action(async () => {
+                        await api("admin/contest/delete", "POST", { eventId: event.id });
+                        setMessage("Event and its saved data deleted.");
+                      });
+                  }}>Delete event</button>
+                </div>
+              ))}
+              {!data.contests.length && <div className="empty-state">No events yet. Create one to configure a challenge.</div>}
+            </div>
+          </div>
+          {data.contest ? <form
+          key={data.selectedContestId}
           className="admin-form"
           onSubmit={(e) => {
             e.preventDefault();
@@ -1488,14 +1609,14 @@ function Admin() {
                 throw new Error("Test cases must be valid JSON.");
               }
               await api("admin/contest", "POST", {
+                eventId: data.selectedContestId,
                 name: f.get("name"),
                 source: f.get("source"),
-                status: f.get("status"),
                 readingMinutes: Number(f.get("readingMinutes")),
                 codingMinutes: Number(f.get("codingMinutes")),
                 tests,
               });
-              setMessage("Contest settings saved.");
+              setMessage("Event settings saved.");
             });
           }}
         >
@@ -1537,19 +1658,10 @@ function Admin() {
                 defaultValue={data.contest?.name || "Blind Coding 2026"}
               />
             </label>
-            <label>
-              STATUS
-              <select name="status" defaultValue={data.contest?.status || "DRAFT"}>
-                <option>DRAFT</option>
-                <option>OPEN</option>
-                <option>CLOSED</option>
-              </select>
-            </label>
           </div>
           <p>
-            Saving OPEN starts a shared clock for everyone in this round. When the round ends and
-            judging finishes, close it and open it again to let the same participants take a new
-            round. Each round keeps its own attempts and results.
+            Save this event first. Use its Open event button above when it is ready for participants.
+            Only one event can be open at a time, and each event keeps its own attempts and results.
           </p>
           <label>
             C SOURCE CODE
@@ -1575,9 +1687,12 @@ function Admin() {
             />
           </label>
           <button className="button primary" disabled={busy}>
-            Save contest <Check />
+            Save event <Check />
           </button>
-        </form>
+        </form> : <div className="empty-state">Create an event to configure its challenge.</div>}
+        </>
+      ) : (
+        <div className="empty-state">Choose an admin section.</div>
       )}
     </section>
   );

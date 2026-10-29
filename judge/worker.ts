@@ -135,7 +135,7 @@ const worker = new Worker(
         ) /
           total) *
         50;
-      const structure = similarity(s.source, c.source) * 30;
+      const structure = similarity(s.source, attempt?.challengeSource || c.source) * 30;
       await put("submission", s.id, {
         ...s,
         status: "RESULT",
@@ -164,9 +164,11 @@ const worker = new Worker(
 worker.on("failed", async (job, error) => {
   if (!job) return;
   if (job.attemptsMade < Number(job.opts.attempts || 1)) return;
-  const s = await get<Submission>("submission", job.data.id);
-  if (s && s.status !== "RESULT")
-    await put("submission", s.id, { ...s, status: "ERROR", error: error.message });
+  await withRecordLock("submission:" + job.data.id, async () => {
+    const s = await get<Submission>("submission", job.data.id);
+    if (s && s.status !== "RESULT")
+      await put("submission", s.id, { ...s, status: "ERROR", error: error.message });
+  });
 });
 // Durable outbox: Redis can be rebuilt by scanning PostgreSQL submissions.
 async function reconcile() {
@@ -176,16 +178,18 @@ async function reconcile() {
     if (await get<Submission>("submission", attempt.id)) continue;
     await withRecordLock("draft:" + attempt.id, () =>
       withRecordLock("submission:" + attempt.id, async () => {
+        const currentAttempt = await get<Attempt>("attempt", attempt.id);
+        if (!currentAttempt) return;
         if (await get<Submission>("submission", attempt.id)) return;
         const submission: Submission = {
           id: attempt.id,
           attemptId: attempt.id,
-          participantId: attempt.participantId,
-          contestId: attempt.contestId,
-          roundId: attempt.roundId,
-          source: attempt.draft,
-          submittedAt: attempt.codingEndsAt,
-          completionMs: attempt.codingEndsAt - attempt.viewingEndsAt,
+          participantId: currentAttempt.participantId,
+          contestId: currentAttempt.contestId,
+          roundId: currentAttempt.roundId,
+          source: currentAttempt.draft,
+          submittedAt: currentAttempt.codingEndsAt,
+          completionMs: currentAttempt.codingEndsAt - currentAttempt.viewingEndsAt,
           status: "QUEUED",
         };
         try {
