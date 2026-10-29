@@ -1599,8 +1599,8 @@ function Admin() {
                 <p>Create events, choose one to edit, and open or close each event.</p>
               </div>
               <button className="button primary" disabled={busy} onClick={() => action(async () => {
-                await api("admin/contest/create", "POST", {});
-                setMessage("Event created. Add its source and test cases, then open it when ready.");
+              await api("admin/contest/create", "POST", {});
+                setMessage("Event created with the three-number comparison challenge and test cases. Review or edit it, then open the event when ready.");
               })}>
                 <Plus /> New event
               </button>
@@ -1695,7 +1695,7 @@ function Admin() {
             </label>
           </div>
           <p>
-            Save this event first. Use its Open event button above when it is ready for participants.
+            Review or edit this event’s default challenge and test cases, then use its Open event button above when it is ready for participants.
             Only one event can be open at a time, and each event keeps its own attempts and results.
           </p>
           <label>
