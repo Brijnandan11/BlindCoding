@@ -222,6 +222,34 @@ export async function leaderboard(contest?: Contest | null) {
   if (!selected) return [];
   return cached("leaderboard", 5, () => buildLeaderboard(selected));
 }
+async function matchRoundSubmissions(contest: Contest, attempts: Attempt[]) {
+  await Promise.all(attempts.map((attempt) =>
+    withRecordLockRetry("submission:" + attempt.id, async () => {
+      const existing = await get<Submission>("submission", attempt.id);
+      const submission: Submission = existing || {
+        id: attempt.id,
+        attemptId: attempt.id,
+        participantId: attempt.participantId,
+        contestId: attempt.contestId,
+        roundId: attempt.roundId,
+        source: attempt.draft,
+        submittedAt: attempt.codingEndsAt,
+        completionMs: attempt.codingEndsAt - attempt.viewingEndsAt,
+        status: "QUEUED",
+      };
+      const score = Number(
+        codeMatchPercent(submission.source, attempt.challengeSource || contest.source).toFixed(2),
+      );
+      await put("submission", submission.id, {
+        ...submission,
+        status: "RESULT",
+        score,
+        error: undefined,
+      });
+    }),
+  ));
+  await cacheDelete("leaderboard");
+}
 async function buildLeaderboard(contest: Contest) {
   const [subs, people, attempts] = await Promise.all([
     list<Submission>("submission"),
@@ -249,7 +277,6 @@ async function buildLeaderboard(contest: Contest) {
   }));
 }
 export async function participantLeaderboard() {
-  const now = Date.now();
   const s = await session();
   let availableAt: number | null = null;
   let contest = await getActiveContest();
@@ -259,6 +286,7 @@ export async function participantLeaderboard() {
     list<Submission>("submission"),
     list<Contest>("contest"),
   ]);
+  const now = Date.now();
   if (s?.participantId && contest) {
     const hasCurrentAttempt = allAttempts.some(
       (attempt) => attempt.participantId === s.participantId && attempt.contestId === contest!.id && attempt.roundId === contest!.roundId,
@@ -275,13 +303,20 @@ export async function participantLeaderboard() {
   let codingMinutes = timing.codingMinutes;
   const currentRound = contest?.roundId;
   const attempts = allAttempts.filter((attempt) => attempt.contestId === contest?.id && attempt.roundId === currentRound);
-  const submissions = allSubmissions.filter((submission) => submission.contestId === contest?.id && submission.roundId === currentRound);
+  let submissions = allSubmissions.filter((submission) => submission.contestId === contest?.id && submission.roundId === currentRound);
   const contestEnd = attempts.length
     ? Math.max(...attempts.map((attempt) => attempt.codingEndsAt))
     : contest?.startedAt
       ? contest.startedAt + timing.readingMs + timing.codingMs
       : null;
   availableAt = contestEnd;
+  const roundEnded = contestEnd !== null && now >= contestEnd;
+  if (roundEnded && contest && attempts.length) {
+    await matchRoundSubmissions(contest, attempts);
+    submissions = (await list<Submission>("submission")).filter(
+      (submission) => submission.contestId === contest.id && submission.roundId === currentRound,
+    );
+  }
   const submissionsByAttempt = new Map(
     submissions.map((submission) => [submission.attemptId, submission]),
   );
@@ -291,7 +326,6 @@ export async function participantLeaderboard() {
       const submission = submissionsByAttempt.get(attempt.id);
       return submission?.status === "RESULT" || submission?.status === "ERROR";
     });
-  const roundEnded = contestEnd !== null && now >= contestEnd;
   if (s?.participantId) {
     const attempt = await get<Attempt>(
       "attempt",

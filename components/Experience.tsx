@@ -896,6 +896,7 @@ function Leaderboard() {
       codingMinutes?: number;
       pendingJudging?: number;
     } | null>(null);
+  const releaseDeadline = useRef<number | null>(null);
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
@@ -911,13 +912,17 @@ function Leaderboard() {
           codingMinutes: d.codingMinutes,
           pendingJudging: d.pendingJudging,
         });
+        releaseDeadline.current = d.availableAt;
         setError("");
         if (d.locked && d.availableAt !== null)
           delay = d.availableAt > d.serverNow
             ? Math.min(delay, d.availableAt - d.serverNow)
             : 250;
       } catch (e) {
-        if (active) setError((e as Error).message);
+        if (active) {
+          setError((e as Error).message);
+          if (releaseDeadline.current !== null && releaseDeadline.current <= Date.now()) delay = 250;
+        }
       } finally {
         if (active) {
           setLoading(false);
