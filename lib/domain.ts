@@ -17,6 +17,7 @@ export type Contest = {
   tests: { input: string; output: string; points: number }[];
   readingMinutes?: number;
   codingMinutes?: number;
+  startedAt?: number;
 };
 export type Participant = { id: string; name: string; code: string; teamId: string; team: string; branch?: string };
 export type Attempt = {

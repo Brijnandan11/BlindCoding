@@ -72,4 +72,4 @@ Each program receives a fresh container with networking disabled, a read-only ro
 4. Run the 500-user save/poll/submission burst against the chosen hosts. Measure judge drain time separately; an API pass alone does not prove timely scoring.
 5. Verify database backup/restore and worker restart recovery, then open the production contest.
 
-Early submitters see rankings only after their full 15-minute coding window. The API returns zero ranking rows before release. Anonymous rankings require a closed contest and all timers ended. Time remains a tie-breaker; expired drafts are not submitted automatically.
+All participants share the deadline established when the organizer opens the contest. The leaderboard remains hidden until the coding period ends and the judge has scored every started attempt. At the deadline, the judge automatically scores each participant’s last saved code if they did not submit early. Time remains a tie-breaker.

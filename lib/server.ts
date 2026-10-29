@@ -13,7 +13,6 @@ import {
   phase,
   validateSubmission,
   rank,
-  leaderboardReleased,
 } from "./domain";
 export const id = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 32);
 export const CONTEST = "contest-main";
@@ -109,26 +108,43 @@ export async function participantLeaderboard() {
   const now = Date.now();
   const s = await session();
   let availableAt: number | null = null;
-  let codingMinutes = contestTiming(await get<Contest>("contest", CONTEST)).codingMinutes;
+  const contest = await get<Contest>("contest", CONTEST);
+  const timing = contestTiming(contest);
+  let codingMinutes = timing.codingMinutes;
   let unlocked = !!s?.admin;
+  const [attempts, submissions] = await Promise.all([
+    list<Attempt>("attempt"),
+    list<Submission>("submission"),
+  ]);
+  const contestEnd = contest?.startedAt
+    ? contest.startedAt + timing.readingMs + timing.codingMs
+    : attempts.length
+      ? Math.max(...attempts.map((attempt) => attempt.codingEndsAt))
+      : null;
+  availableAt = contestEnd;
+  const submissionsByAttempt = new Map(submissions.map((submission) => [submission.attemptId, submission]));
+  const allJudged =
+    attempts.every((attempt) => attempt.codingEndsAt <= now) &&
+    attempts.every((attempt) => {
+      const submission = submissionsByAttempt.get(attempt.id);
+      return submission?.status === "RESULT";
+    });
+  const roundEnded = contestEnd !== null && now >= contestEnd;
   if (s?.participantId) {
     const attempt = await get<Attempt>("attempt", id(s.participantId + CONTEST));
-    availableAt = attempt?.codingEndsAt ?? null;
     if (attempt) codingMinutes = Math.max(1, Math.ceil((attempt.codingEndsAt - attempt.viewingEndsAt) / 60000));
-    unlocked = !!attempt && leaderboardReleased(attempt, now);
+    unlocked = roundEnded && allJudged;
   } else if (!s?.admin) {
-    const contest = await get<Contest>("contest", CONTEST);
-    // Signing out must not expose rankings while the round is still running.
-    if (contest?.status === "CLOSED") {
-      const attempts = await list<Attempt>("attempt");
-      availableAt = attempts.length ? Math.max(...attempts.map((a) => a.codingEndsAt)) : null;
-      unlocked = availableAt !== null && now >= availableAt;
-    }
+    unlocked = roundEnded && allJudged;
   }
   return {
     locked: !unlocked,
     availableAt,
     codingMinutes,
+    pendingJudging: attempts.filter((attempt) => {
+      const submission = submissionsByAttempt.get(attempt.id);
+      return submission?.status !== "RESULT";
+    }).length,
     serverNow: now,
     rows: unlocked ? await leaderboard() : [],
   };
@@ -243,16 +259,26 @@ export async function handle(method: string, route: string, body: Record<string,
         throw new Error("Blind coding time must be a valid positive number of minutes.");
       }
       const attempts = await list<Attempt>("attempt");
-      if (attempts.length && (body.source !== old?.source || JSON.stringify(body.tests) !== JSON.stringify(old?.tests)))
+      if (
+        old?.startedAt &&
+        (old.readingMinutes !== timing.readingMinutes || old.codingMinutes !== timing.codingMinutes)
+      )
+        throw new Error("Contest timing is locked after the organizer opens the contest.");
+      if (
+        attempts.length &&
+        (body.source !== old?.source || JSON.stringify(body.tests) !== JSON.stringify(old?.tests))
+      )
         throw new Error("Source and test cases are locked after the first attempt starts.");
+      const status = body.status === "OPEN" ? "OPEN" : body.status === "CLOSED" ? "CLOSED" : "DRAFT";
       const c: Contest = {
         id: CONTEST,
         name: String(body.name || "Blind Coding 2026").slice(0, 200),
-        status: body.status === "OPEN" ? "OPEN" : body.status === "CLOSED" ? "CLOSED" : "DRAFT",
+        status,
         source: String(body.source || ""),
         tests: body.tests as Contest["tests"],
         readingMinutes: timing.readingMinutes,
         codingMinutes: timing.codingMinutes,
+        startedAt: old?.startedAt ?? (status === "OPEN" ? Date.now() : undefined),
       };
       if (
         !c.source ||
@@ -299,17 +325,27 @@ export async function handle(method: string, route: string, body: Record<string,
     if (a) return state({ p, a });
     if (!usePostgres && process.env.NODE_ENV === "production")
       throw new Error("Configure PostgreSQL before starting a production contest.");
-    const c = await get<Contest>("contest", CONTEST);
+    let c = await get<Contest>("contest", CONTEST);
     if (c?.status !== "OPEN") throw new Error("The contest is not open yet.");
-    const now = Date.now();
+    if (!c.startedAt) {
+      await withRecordLock("contest-start", async () => {
+        const current = await get<Contest>("contest", CONTEST);
+        if (current?.status !== "OPEN") throw new Error("The contest is not open yet.");
+        if (!current.startedAt) await put("contest", CONTEST, { ...current, startedAt: Date.now() });
+        c = await get<Contest>("contest", CONTEST);
+      });
+    }
     const timing = contestTiming(c);
+    const contestStart = c.startedAt || Date.now();
+    if (Date.now() >= contestStart + timing.readingMs + timing.codingMs)
+      throw new Error("This contest has ended. Contact the organizer.");
     const attempt: Attempt = {
       id: id(p.id + CONTEST),
       participantId: p.id,
       contestId: CONTEST,
-      startedAt: now,
-      viewingEndsAt: now + timing.readingMs,
-      codingEndsAt: now + timing.readingMs + timing.codingMs,
+      startedAt: contestStart,
+      viewingEndsAt: contestStart + timing.readingMs,
+      codingEndsAt: contestStart + timing.readingMs + timing.codingMs,
       draft: "",
       revision: 0,
     };

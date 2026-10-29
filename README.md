@@ -1,6 +1,6 @@
 # Blind Coding — Coding Club
 
-An individual C-code memory contest: five minutes of read-only study, then fifteen minutes of invisible typing on a completely black viewport. Ctrl+Enter or F10 creates one final submission. Expired drafts receive no automatic submission. Accuracy determines ranking; completion time breaks ties. Each organizer-created team nominates exactly three participants.
+An individual C-code memory contest with organizer-set reading and blind coding times. Everyone shares the contest clock. Ctrl+Enter or F10 submits early; otherwise, the judge scores each participant’s last saved code at the deadline. Accuracy determines ranking; completion time breaks ties. Each organizer-created team nominates exactly three participants.
 
 The production configuration uses **Next.js/TypeScript, Supabase Postgres, Redis/BullMQ and a separate Docker/GCC judge**. The backend remains Next.js route handlers.
 
@@ -15,7 +15,7 @@ npm run dev
 
 Copy settings from `.env.example` into a private environment file. For Supabase, copy the PostgreSQL pooler connection URI from Dashboard → Connect (Session mode for the persistent backend/judge). Keep the same `STORE_NAMESPACE` on backend and judge, even when they use different database URLs. Set a random admin password of at least 24 characters. No default admin password, demo account or automatic sample contest exists.
 
-Sign in at `/admin`, save the official C source and weighted test cases in DRAFT, create real three-person teams, distribute codes privately, then open the contest. Source and test cases are locked after the first attempt starts.
+Sign in at `/admin`, save the official C source, weighted test cases and timing in DRAFT, create teams, distribute codes privately, then open the contest when everyone is ready. Opening starts one shared reading and coding clock for all participants. Timing locks when the clock starts. Source and test cases lock after the first attempt starts.
 
 ## Deployment
 
@@ -34,7 +34,7 @@ A bounded PostgreSQL connection pool serves concurrent participants. Indexed rec
 
 PostgreSQL stores authoritative deadlines, attempts, drafts, final submissions and scores. Redis loss can be recovered from durable records; cache/queue outages can temporarily interrupt APIs without resetting deadlines. Source access is refused after study ends. The browser remains black when contest state is unavailable.
 
-Early submission does not unlock rankings. The participant leaderboard releases at that participant's stored coding deadline and refreshes automatically. Anonymous rankings require the organizer to close the contest and every attempt's coding deadline to have ended. Admin monitoring and exports remain available. Live drafts are never returned to the admin interface.
+Early submission does not unlock rankings. At the shared coding deadline, the judge automatically scores each participant's last saved code, including participants who did not press submit. The full leaderboard releases once all started attempts have finished scoring and refreshes automatically. Admin monitoring and exports remain available. Live drafts are never returned to the admin interface.
 
 Scoring: weighted functional tests contribute 50 points, C-token sequence similarity 30, and successful compilation 20. Token comparison ignores whitespace/comments; it is not an AST/semantic equivalence claim. Noncompiling partial code can earn structure credit. Organizers should approve the rubric and official test cases.
 

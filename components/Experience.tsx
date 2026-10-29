@@ -507,7 +507,7 @@ function Instructions({ publicRules }: { publicRules: boolean }) {
     `You have up to ${timing.codingMinutes} minutes to type. Refreshing does not reset your timer.`,
     "Press Ctrl + Enter or F10 to submit. Only one final submission is allowed.",
     "Accuracy determines your rank. Completion time breaks score ties.",
-    "Submit before the deadline for partial credit. Expired drafts are not submitted.",
+    "Submit early if you finish. Otherwise, your last saved code is scored automatically at the shared deadline.",
   ];
   return (
     <section className="content-page rules-page">
@@ -720,6 +720,22 @@ function Contest() {
       await refresh();
     }
   }
+  // A local snapshot can contain an old deadline. Keep it as a recovery aid after
+  // the first server response, but never use it to decide whether a new page load
+  // starts in an active or expired phase.
+  if (!state)
+    return (
+      <div className="status-screen">
+        <Clock size={42} />
+        <h1>{error ? "Reconnecting to your attempt." : "Connecting to your attempt."}</h1>
+        <p>{error || "Checking your official contest timer…"}</p>
+        {error && (
+          <button className="button primary" onClick={() => refresh()}>
+            Try again
+          </button>
+        )}
+      </div>
+    );
   if (!localFallback) return <div className="black-screen" />;
   if (localPhase === "CODING")
     return (
@@ -782,7 +798,8 @@ function Contest() {
         <Clock size={48} />
         <h1>Time’s up.</h1>
         <p>
-          Your coding period has ended. Your draft was not submitted and will not receive a score.
+          Your saved code is being scored automatically. The leaderboard will open when everyone’s
+          results are ready.
         </p>
         <Link href="/leaderboard" className="button primary">
           View leaderboard <ArrowRight />
@@ -857,7 +874,12 @@ function Leaderboard() {
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [query, setQuery] = useState(""),
-    [release, setRelease] = useState<{ locked: boolean; availableAt: number | null; codingMinutes?: number } | null>(null);
+    [release, setRelease] = useState<{
+      locked: boolean;
+      availableAt: number | null;
+      codingMinutes?: number;
+      pendingJudging?: number;
+    } | null>(null);
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
@@ -867,7 +889,12 @@ function Leaderboard() {
         const d = await api("leaderboard");
         if (!active) return;
         setRows(d.rows);
-        setRelease({ locked: d.locked, availableAt: d.availableAt, codingMinutes: d.codingMinutes });
+        setRelease({
+          locked: d.locked,
+          availableAt: d.availableAt,
+          codingMinutes: d.codingMinutes,
+          pendingJudging: d.pendingJudging,
+        });
         setError("");
         if (d.locked && d.availableAt > d.serverNow)
           delay = Math.min(delay, d.availableAt - d.serverNow + 50);
@@ -891,10 +918,15 @@ function Leaderboard() {
       <section className="content-page result-page" aria-live="polite">
         <span className="eyebrow blue">RANKINGS ARE LOCKED</span>
         <Clock size={48} aria-hidden="true" />
-        <h1>The leaderboard opens after your {release.codingMinutes || 15} minutes.</h1>
+        <h1>
+          {release.availableAt && release.availableAt <= Date.now()
+            ? "The leaderboard is being prepared."
+            : `The leaderboard opens after your ${release.codingMinutes || 15} minutes.`}
+        </h1>
         <p>
-          Submitting early locks in your code. Rankings stay hidden until your full coding period
-          ends.
+          {release.availableAt && release.availableAt <= Date.now()
+            ? `The contest has ended. Scoring ${release.pendingJudging || 0} remaining submissions before publishing the full leaderboard.`
+            : "Everyone shares the same contest deadline. The full leaderboard appears after time ends and all saved code has been scored."}
         </p>
         {release.availableAt ? (
           <p>
@@ -1490,9 +1522,10 @@ function Admin() {
             </label>
           </div>
           <p>
-            Reading and blind coding times apply to new attempts when saved. Participants who have
-            already started keep the deadlines assigned to their attempt. Source and test cases
-            lock after the first attempt starts. Closing prevents new starts; existing timers continue.
+            Saving OPEN starts one shared contest clock for everyone. Set the reading and blind
+            coding times first; both are locked once the clock starts. Saved code is submitted for
+            scoring automatically at the shared deadline. Source and test cases lock after the
+            first attempt starts.
           </p>
           <label>
             C SOURCE CODE

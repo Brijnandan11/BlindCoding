@@ -3,8 +3,9 @@ import { spawn } from "node:child_process";
 import { mkdtemp, writeFile, rm, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { get, list, put } from "../lib/store";
-import { Contest, Submission } from "../lib/domain";
+import { create, get, list, put } from "../lib/store";
+import { cacheDelete, withRecordLock } from "../lib/cache";
+import { Attempt, Contest, Submission } from "../lib/domain";
 import { similarity } from "./scoring";
 import { redisConnection } from "../lib/redis";
 const connection = redisConnection();
@@ -143,6 +144,7 @@ const worker = new Worker(
         tests: evaluation.results,
         error: evaluation.error,
       });
+      await cacheDelete("leaderboard");
       mark("resultWrite");
     } finally {
       await execute(["rm", "-f", name], 5000).catch(() => {});
@@ -166,6 +168,31 @@ worker.on("failed", async (job, error) => {
 });
 // Durable outbox: Redis can be rebuilt by scanning PostgreSQL submissions.
 async function reconcile() {
+  const now = Date.now();
+  for (const attempt of await list<Attempt>("attempt")) {
+    if (attempt.codingEndsAt > now) continue;
+    if (await get<Submission>("submission", attempt.id)) continue;
+    await withRecordLock("draft:" + attempt.id, () =>
+      withRecordLock("submission:" + attempt.id, async () => {
+        if (await get<Submission>("submission", attempt.id)) return;
+        const submission: Submission = {
+          id: attempt.id,
+          attemptId: attempt.id,
+          participantId: attempt.participantId,
+          contestId: attempt.contestId,
+          source: attempt.draft,
+          submittedAt: attempt.codingEndsAt,
+          completionMs: attempt.codingEndsAt - attempt.viewingEndsAt,
+          status: "QUEUED",
+        };
+        try {
+          await create("submission", attempt.id, submission);
+        } catch (error) {
+          if ((error as { code?: number | string }).code !== 409) throw error;
+        }
+      }),
+    );
+  }
   for (const s of await list<Submission>("submission"))
     if (["QUEUED", "JUDGING"].includes(s.status)) {
       const existing = await queue.getJob(s.id);
