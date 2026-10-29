@@ -408,6 +408,7 @@ function Login() {
     [name, setName] = useState(""),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(false);
+  const loginInFlight = useRef(false);
   return (
     <section className="entry-layout">
       <motion.div {...reveal} className="entry-copy">
@@ -442,6 +443,8 @@ function Login() {
         className="entry-panel"
         onSubmit={async (e) => {
           e.preventDefault();
+          if (loginInFlight.current) return;
+          loginInFlight.current = true;
           setLoading(true);
           setError("");
           try {
@@ -450,6 +453,7 @@ function Login() {
           } catch (e) {
             setError((e as Error).message);
             setLoading(false);
+            loginInFlight.current = false;
           }
         }}
       >
@@ -1184,13 +1188,27 @@ function Admin() {
     [tab, setTab] = useState("monitor"),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
+  const loginInFlight = useRef(false);
+  const [loginPending, setLoginPending] = useState(false);
+  const actionInFlight = useRef(false);
+  const loadRequest = useRef(0);
   const load = useCallback(
-    () =>
-      api("admin/overview")
-        .then(setData)
-        .catch((e) => {
-          if (!e.message.includes("authentication")) setError(e.message);
-        }),
+    async () => {
+      const request = ++loadRequest.current;
+      try {
+        const overview = await api("admin/overview");
+        if (request === loadRequest.current) {
+          setData(overview);
+          setError("");
+        }
+      } catch (e) {
+        if (request === loadRequest.current) {
+          const message = (e as Error).message;
+          if (!message.toLowerCase().includes("authentication") && !message.toLowerCase().includes("sign in"))
+            setError(message);
+        }
+      }
+    },
     [],
   );
   useEffect(() => {
@@ -1209,12 +1227,18 @@ function Admin() {
           className="entry-panel"
           onSubmit={async (e) => {
             e.preventDefault();
+            if (loginInFlight.current) return;
+            loginInFlight.current = true;
+            setLoginPending(true);
             setError("");
             try {
               await api("admin/login", "POST", { password });
               await load();
             } catch (e) {
               setError((e as Error).message);
+            } finally {
+              loginInFlight.current = false;
+              setLoginPending(false);
             }
           }}
         >
@@ -1227,13 +1251,15 @@ function Admin() {
             onChange={(e) => setPassword(e.target.value)}
           />
           {error && <p className="error">{error}</p>}
-          <button className="button primary full">
-            Enter dashboard <ArrowRight />
+          <button className="button primary full" disabled={loginPending}>
+            {loginPending ? "Signing in…" : "Enter dashboard"} <ArrowRight />
           </button>
         </form>
       </section>
     );
   async function action(fn: () => Promise<void>) {
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
     setBusy(true);
     setError("");
     setMessage("");
@@ -1243,6 +1269,7 @@ function Admin() {
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      actionInFlight.current = false;
       setBusy(false);
     }
   }
@@ -1257,10 +1284,16 @@ function Admin() {
       </div>
       <button
         className="text-button sign-out"
+        disabled={busy}
         onClick={async () => {
-          await api("auth/logout", "POST", {});
-          setData(null);
-          setPassword("");
+          try {
+            await api("auth/logout", "POST", {});
+            setData(null);
+            setPassword("");
+            setError("");
+          } catch (e) {
+            setError((e as Error).message);
+          }
         }}
       >
         Sign out <SignOut size={16} />
@@ -1509,6 +1542,7 @@ function Admin() {
                   <td>
                     <button
                       className="text-button"
+                      disabled={busy}
                       onClick={() =>
                         action(async () => {
                           const detail = await api("admin/submission", "POST", {
@@ -1523,6 +1557,7 @@ function Admin() {
                     {submission.status === "ERROR" && (
                       <button
                         className="text-button"
+                        disabled={busy}
                         onClick={() =>
                           action(async () => {
                             await api("admin/retry", "POST", { id: submission.id });
