@@ -9,6 +9,7 @@ import {
   Participant,
   Contest,
   Submission,
+  contestTiming,
   phase,
   validateSubmission,
   rank,
@@ -187,6 +188,7 @@ export async function handle(method: string, route: string, body: Record<string,
         list<Submission>("submission"),
         get<Contest>("contest", CONTEST),
       ]);
+      const timing = contestTiming(c);
       return {
         participants: participants.map((p) => {
           const a = attempts.find((x) => x.participantId === p.id);
@@ -198,7 +200,7 @@ export async function handle(method: string, route: string, body: Record<string,
           };
         }),
         submissions: submissions.map(publicSubmission),
-        contest: c,
+        contest: c ? { ...c, ...timing } : null,
         productionStoreConfigured: usePostgres,
         serverNow: Date.now(),
       };
@@ -216,17 +218,32 @@ export async function handle(method: string, route: string, body: Record<string,
       if (!usePostgres && process.env.NODE_ENV === "production" && body.status === "OPEN")
         throw new Error("Configure PostgreSQL before opening a production contest.");
       const old = await get<Contest>("contest", CONTEST);
+      const timing = contestTiming({
+        readingMinutes: Number(body.readingMinutes),
+        codingMinutes: Number(body.codingMinutes),
+      });
+      if (!Number.isFinite(Number(body.readingMinutes)) || timing.readingMinutes <= 0) {
+        throw new Error("Reading time must be a valid positive number of minutes.");
+      }
+      if (!Number.isFinite(Number(body.codingMinutes)) || timing.codingMinutes <= 0) {
+        throw new Error("Blind coding time must be a valid positive number of minutes.");
+      }
       if (
         (await list("attempt")).length &&
-        (body.source !== old?.source || JSON.stringify(body.tests) !== JSON.stringify(old?.tests))
+        (body.source !== old?.source ||
+          JSON.stringify(body.tests) !== JSON.stringify(old?.tests) ||
+          old?.readingMinutes !== timing.readingMinutes ||
+          old?.codingMinutes !== timing.codingMinutes)
       )
-        throw new Error("Source and scoring tests are locked after the first attempt starts.");
+        throw new Error("Source, test cases and timing settings are locked after the first attempt starts.");
       const c: Contest = {
         id: CONTEST,
         name: String(body.name || "Blind Coding 2026").slice(0, 200),
         status: body.status === "OPEN" ? "OPEN" : body.status === "CLOSED" ? "CLOSED" : "DRAFT",
         source: String(body.source || ""),
         tests: body.tests as Contest["tests"],
+        readingMinutes: timing.readingMinutes,
+        codingMinutes: timing.codingMinutes,
       };
       if (
         !c.source ||
@@ -276,13 +293,14 @@ export async function handle(method: string, route: string, body: Record<string,
     const c = await get<Contest>("contest", CONTEST);
     if (c?.status !== "OPEN") throw new Error("The contest is not open yet.");
     const now = Date.now();
+    const timing = contestTiming(c);
     const attempt: Attempt = {
       id: id(p.id + CONTEST),
       participantId: p.id,
       contestId: CONTEST,
       startedAt: now,
-      viewingEndsAt: now + 300000,
-      codingEndsAt: now + 1200000,
+      viewingEndsAt: now + timing.readingMs,
+      codingEndsAt: now + timing.readingMs + timing.codingMs,
       draft: "",
       revision: 0,
     };

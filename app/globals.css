@@ -12,7 +12,7 @@
   box-sizing: border-box;
 }
 html {
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
 }
 body {
   margin: 0;
@@ -219,8 +219,9 @@ svg {
   padding: 14px 22px;
   border: 1px solid transparent;
   transition:
-    background 0.2s,
-    transform 0.2s;
+    background 0.12s ease,
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
 }
 .primary {
   color: white;
@@ -228,10 +229,10 @@ svg {
 }
 .primary:hover {
   background: #6192ff;
-  transform: translateY(-2px);
+  transform: translateY(-1px);
 }
 .primary:active {
-  transform: translateY(1px);
+  transform: translateY(0);
 }
 .text-link {
   font-size: 12px;
@@ -1295,6 +1296,29 @@ td:nth-child(2) {
   overflow: hidden;
   color: #000;
 }
+.blind-timer {
+  position: absolute;
+  top: 28px;
+  right: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  z-index: 1;
+  color: #f8fbff;
+  text-shadow: 0 0 16px rgba(255, 255, 255, 0.2);
+}
+.blind-timer small {
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.7);
+}
+.blind-timer strong {
+  font-family: var(--display);
+  font-size: clamp(24px, 4vw, 44px);
+  font-weight: 400;
+  letter-spacing: -2px;
+}
 .is-blind,
 .is-blind * {
   cursor: none !important;
@@ -2047,15 +2071,15 @@ body.is-blind nextjs-portal {
 }
 .button {
   transition:
-    transform 0.2s,
-    box-shadow 0.2s,
-    background 0.2s;
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    background 0.12s ease;
 }
 .button:hover {
-  transform: translateY(-3px);
+  transform: translateY(-1px);
 }
 .button:active {
-  transform: translateY(1px);
+  transform: translateY(0);
 }
 @keyframes memory-cycle {
   0%,

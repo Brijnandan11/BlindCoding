@@ -1,12 +1,22 @@
-export const STUDY_SECONDS = 300;
-export const CODING_SECONDS = 900;
+export const DEFAULT_READING_MINUTES = 5;
+export const DEFAULT_CODING_MINUTES = 15;
+export const STUDY_SECONDS = DEFAULT_READING_MINUTES * 60;
+export const CODING_SECONDS = DEFAULT_CODING_MINUTES * 60;
 export const MAX_SOURCE_BYTES = 32768;
+export type ContestTiming = {
+  readingMinutes: number;
+  codingMinutes: number;
+  readingMs: number;
+  codingMs: number;
+};
 export type Contest = {
   id: string;
   name: string;
   status: "DRAFT" | "OPEN" | "CLOSED";
   source: string;
   tests: { input: string; output: string; points: number }[];
+  readingMinutes?: number;
+  codingMinutes?: number;
 };
 export type Participant = { id: string; name: string; code: string; teamId: string; team: string; branch?: string };
 export type Attempt = {
@@ -35,6 +45,22 @@ export type Submission = {
   error?: string;
   tests?: { passed: boolean; error?: string }[];
 };
+export function contestTiming(input?: Partial<ContestTiming | Contest> | null): ContestTiming {
+  const rawReadingMinutes = Number(input?.readingMinutes ?? DEFAULT_READING_MINUTES);
+  const rawCodingMinutes = Number(input?.codingMinutes ?? DEFAULT_CODING_MINUTES);
+  const readingMinutes = Number.isFinite(rawReadingMinutes) && rawReadingMinutes > 0 && rawReadingMinutes <= 180
+    ? rawReadingMinutes
+    : DEFAULT_READING_MINUTES;
+  const codingMinutes = Number.isFinite(rawCodingMinutes) && rawCodingMinutes > 0 && rawCodingMinutes <= 180
+    ? rawCodingMinutes
+    : DEFAULT_CODING_MINUTES;
+  return {
+    readingMinutes,
+    codingMinutes,
+    readingMs: readingMinutes * 60 * 1000,
+    codingMs: codingMinutes * 60 * 1000,
+  };
+}
 export function phase(a: Attempt, submitted: boolean, now = Date.now()) {
   if (submitted) return "SUBMITTED";
   if (now < a.viewingEndsAt) return "VIEWING";

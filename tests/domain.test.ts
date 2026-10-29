@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { phase, validateSubmission, rank, leaderboardReleased, Attempt } from "../lib/domain";
+import {
+  phase,
+  validateSubmission,
+  rank,
+  leaderboardReleased,
+  ContestTiming,
+  contestTiming,
+  Attempt,
+} from "../lib/domain";
 import { similarity } from "../judge/scoring";
 const a: Attempt = {
   id: "a",
@@ -40,6 +48,22 @@ test("structure ignores formatting, awards partial credit, and penalizes empty s
   assert.equal(similarity("int main(){return 0;}", ""), 0);
   const partial = similarity("int main(){ int n; return 0;}", "int main(){");
   assert.ok(partial > 0 && partial < 1);
+});
+
+test("default contest timing is five minutes reading and fifteen minutes coding", () => {
+  const t = contestTiming();
+  assert.deepEqual(t, { readingMinutes: 5, codingMinutes: 15, readingMs: 300000, codingMs: 900000 });
+});
+
+test("custom contest timing clamps to valid ranges", () => {
+  const t = contestTiming({ readingMinutes: 2, codingMinutes: 8 } as ContestTiming);
+  assert.deepEqual(t, { readingMinutes: 2, codingMinutes: 8, readingMs: 120000, codingMs: 480000 });
+  assert.deepEqual(contestTiming({ readingMinutes: 0, codingMinutes: 0 } as ContestTiming), {
+    readingMinutes: 5,
+    codingMinutes: 15,
+    readingMs: 300000,
+    codingMs: 900000,
+  });
 });
 
 test("early submission never unlocks leaderboard before the coding deadline", () => {

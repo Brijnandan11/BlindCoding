@@ -376,6 +376,7 @@ function Home() {
   );
 }
 function Login() {
+  const router = useRouter();
   const [team, setTeam] = useState(""),
     [name, setName] = useState(""),
     [error, setError] = useState(""),
@@ -418,7 +419,7 @@ function Login() {
           setError("");
           try {
             await api("auth/login", "POST", { team, name });
-            window.location.href = "/instructions";
+            router.push("/instructions");
           } catch (e) {
             setError((e as Error).message);
             setLoading(false);
@@ -556,6 +557,7 @@ function Instructions({ publicRules }: { publicRules: boolean }) {
   );
 }
 function Contest() {
+  const router = useRouter();
   const [state, setState] = useState<State | null>(null),
     [source, setSource] = useState(""),
     [now, setNow] = useState(Date.now()),
@@ -579,7 +581,7 @@ function Contest() {
     } catch (e) {
       const message = (e as Error).message;
       setError(message);
-      if (/^Please sign in|^Participant not found/.test(message)) window.location.replace("/login");
+      if (/^Please sign in|^Participant not found/.test(message)) router.replace("/login");
     } finally {
       refreshing.current = false;
     }
@@ -676,7 +678,7 @@ function Contest() {
     try {
       await api("submission", "POST", { source: draft.current });
       await document.exitFullscreen?.().catch(() => {});
-      window.location.href = "/result";
+      router.push("/result");
     } catch {
       submitting.current = false;
       await refresh();
@@ -690,6 +692,10 @@ function Contest() {
         onClick={() => input.current?.focus()}
         onContextMenu={(e) => e.preventDefault()}
       >
+        <div className="blind-timer" aria-live="polite" aria-atomic="true">
+          <small>TIME LEFT</small>
+          <strong>{time(Math.max(0, (state.attempt?.codingEndsAt || now) - now))}</strong>
+        </div>
         <textarea
           ref={input}
           aria-label="Blind code input. Press Control Enter or F10 to submit."
@@ -1417,9 +1423,39 @@ function Admin() {
               </select>
             </label>
           </div>
+          <div className="three-inputs">
+            <label>
+              READING TIME (MINUTES)
+              <input
+                name="readingMinutes"
+                type="number"
+                min={1}
+                max={180}
+                step={1}
+                defaultValue={data.contest?.readingMinutes ?? 5}
+                required
+              />
+            </label>
+            <label>
+              BLIND CODING TIME (MINUTES)
+              <input
+                name="codingMinutes"
+                type="number"
+                min={1}
+                max={180}
+                step={1}
+                defaultValue={data.contest?.codingMinutes ?? 15}
+                required
+              />
+            </label>
+            <label>
+              LANGUAGE
+              <input value="C" readOnly />
+            </label>
+          </div>
           <p>
-            Study: 5 minutes · Coding: 15 minutes · Language: C. Closing prevents new starts;
-            existing timers continue.
+            Study time and coding time are saved per contest and are locked after the first attempt
+            starts. Closing prevents new starts; existing timers continue.
           </p>
           <label>
             C SOURCE CODE
