@@ -135,7 +135,7 @@ export async function participantLeaderboard() {
     attempts.every((attempt) => attempt.codingEndsAt <= now) &&
     attempts.every((attempt) => {
       const submission = submissionsByAttempt.get(attempt.id);
-      return submission?.status === "RESULT";
+      return submission?.status === "RESULT" || submission?.status === "ERROR";
     });
   const roundEnded = contestEnd !== null && now >= contestEnd;
   if (s?.participantId) {
@@ -154,7 +154,7 @@ export async function participantLeaderboard() {
     codingMinutes,
     pendingJudging: attempts.filter((attempt) => {
       const submission = submissionsByAttempt.get(attempt.id);
-      return submission?.status !== "RESULT";
+      return submission?.status !== "RESULT" && submission?.status !== "ERROR";
     }).length,
     serverNow: now,
     rows: unlocked ? await leaderboard() : [],

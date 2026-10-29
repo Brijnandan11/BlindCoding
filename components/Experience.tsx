@@ -604,7 +604,8 @@ function Contest() {
     draft = useRef(""),
     revision = useRef(0),
     loaded = useRef(false),
-    submitting = useRef(false);
+    submitting = useRef(false),
+    submitRequested = useRef(false);
   const refresh = useCallback(async () => {
     if (refreshing.current) return;
     refreshing.current = true;
@@ -674,6 +675,10 @@ function Contest() {
         }
         loaded.current = true;
         input.current?.focus();
+        if (submitRequested.current) {
+          submitRequested.current = false;
+          submit();
+        }
       } catch {
       } finally {
         pending = false;
@@ -709,7 +714,11 @@ function Contest() {
     };
   }, [localPhase]);
   async function submit() {
-    if (submitting.current || !loaded.current) return;
+    if (submitting.current) return;
+    if (!loaded.current) {
+      submitRequested.current = true;
+      return;
+    }
     submitting.current = true;
     try {
       await api("submission", "POST", { source: draft.current });
@@ -720,6 +729,9 @@ function Contest() {
       await refresh();
     }
   }
+  useEffect(() => {
+    if (localPhase === "EXPIRED") router.replace("/leaderboard");
+  }, [localPhase, router]);
   // A local snapshot can contain an old deadline. Keep it as a recovery aid after
   // the first server response, but never use it to decide whether a new page load
   // starts in an active or expired phase.
@@ -766,7 +778,7 @@ function Contest() {
             setTimeout(() => input.current?.focus(), 0);
           }}
           onKeyDown={(e) => {
-            if ((e.ctrlKey && e.key === "Enter") || e.key === "F10") {
+            if (((e.ctrlKey || e.metaKey) && e.key === "Enter") || e.key === "F10") {
               e.preventDefault();
               submit();
             }
@@ -1030,6 +1042,7 @@ function Leaderboard() {
   );
 }
 function Result() {
+  const router = useRouter();
   const [state, setState] = useState<State | null>(null),
     [error, setError] = useState("");
   useEffect(() => {
@@ -1037,23 +1050,35 @@ function Result() {
     let timer: ReturnType<typeof setTimeout>;
     const load = async () => {
       let finished = false;
+      let deadline: number | undefined;
+      let deadlineDelay: number | undefined;
       try {
         const data = await api<State>("result");
         if (!active) return;
         setState(data);
         setError("");
+        deadline = data.attempt?.codingEndsAt;
+        if (deadline) deadlineDelay = deadline - data.serverNow + 50;
+        if (deadline && data.serverNow >= deadline) {
+          router.replace("/leaderboard");
+          return;
+        }
         finished = data.submission?.status === "RESULT";
       } catch (e) {
         if (active) setError((e as Error).message);
       }
-      if (active && !finished) timer = setTimeout(load, 4000);
+      if (active && (!finished || deadline))
+        timer = setTimeout(
+          load,
+          finished && deadlineDelay ? Math.max(50, deadlineDelay) : 4000,
+        );
     };
     load();
     return () => {
       active = false;
       clearTimeout(timer);
     };
-  }, []);
+  }, [router]);
   const s = state?.submission;
   return (
     <section className="result-page">
