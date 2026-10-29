@@ -13,36 +13,43 @@ export function tokens(source: string) {
 export function codeMatchPercent(submitted: string, reference: string) {
   const rawActual = tokens(submitted).slice(0, 3000);
   const rawExpected = tokens(reference).slice(0, 3000);
-  // Normalize user-defined identifiers by first appearance. This makes consistent
-  // renaming (for example first/second/third to a/b/c) score as the same code,
-  // while keywords and built-in names remain exact.
-  const keywords = new Set([
-    "auto", "break", "case", "char", "const", "continue", "default", "do",
-    "double", "else", "enum", "extern", "float", "for", "goto", "if",
-    "inline", "int", "long", "register", "restrict", "return", "short",
-    "signed", "sizeof", "static", "struct", "switch", "typedef", "union",
-    "unsigned", "void", "volatile", "while", "_Bool", "_Complex", "_Imaginary",
-    "alignas", "alignof", "and", "asm", "bool", "catch", "class", "constexpr",
-    "cout", "cin", "decltype", "delete", "false", "namespace", "new", "nullptr",
-    "operator", "private", "public", "std", "string", "template", "this", "true",
-    "try", "using", "virtual", "#include", "printf", "scanf",
-  ]);
-  const canonicalize = (sourceTokens: string[], otherTokens: string[]) => {
+  // Only rename identifiers declared as variables. Renaming every unknown word
+  // made arbitrary text look like valid variable-renamed code.
+  const variableNames = (sourceTokens: string[]) => {
+    const types = new Set(["int", "char", "float", "double", "short", "long", "signed", "unsigned", "bool", "_Bool"]);
+    const variables = new Set<string>();
+    for (let i = 0; i < sourceTokens.length - 1; i++) {
+      if (!types.has(sourceTokens[i])) continue;
+      let expectName = true;
+      for (let j = i + 1; j < sourceTokens.length && sourceTokens[j] !== ";"; j++) {
+        if (sourceTokens[j] === "(" && j === i + 2) break; // function declaration
+        if (expectName && /^[A-Za-z_]\w*$/.test(sourceTokens[j])) {
+          variables.add(sourceTokens[j]);
+          expectName = false;
+        } else if (sourceTokens[j] === ",") {
+          expectName = true;
+        } else if (sourceTokens[j] === "=") {
+          while (j + 1 < sourceTokens.length && sourceTokens[j + 1] !== "," && sourceTokens[j + 1] !== ";") j++;
+        }
+      }
+    }
+    return variables;
+  };
+  const canonicalize = (sourceTokens: string[], variables: Set<string>) => {
     const names = new Map<string, string>();
-    const reserved = new Set([...keywords, ...sourceTokens.filter((t) => !/^[A-Za-z_]\w*$/.test(t)), ...otherTokens.filter((t) => !/^[A-Za-z_]\w*$/.test(t))]);
     let next = 0;
     return sourceTokens.map((token) => {
-      if (!/^[A-Za-z_]\w*$/.test(token) || keywords.has(token)) return token;
+      if (!variables.has(token)) return token;
       let canonical = names.get(token);
       if (!canonical) {
-        do canonical = `__identifier_${next++}`; while (reserved.has(canonical));
+        canonical = `__variable_${next++}`;
         names.set(token, canonical);
       }
       return canonical;
     });
   };
-  const actual = canonicalize(rawActual, rawExpected);
-  const expected = canonicalize(rawExpected, rawActual);
+  const actual = canonicalize(rawActual, variableNames(rawActual));
+  const expected = canonicalize(rawExpected, variableNames(rawExpected));
   if (!actual.length && !expected.length) return 100;
 
   const lengths = new Uint16Array(expected.length + 1);
