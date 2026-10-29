@@ -158,19 +158,14 @@ async function deleteContestRecords(contest: Contest) {
   const ownedAttempts = attempts.filter((attempt) => attempt.contestId === contest.id);
   const ownedSubmissions = submissions.filter((submission) => submission.contestId === contest.id);
   for (const attempt of ownedAttempts) {
-    if (attempt.codingEndsAt > Date.now())
-      throw new Error("Close the event and wait for its coding period to finish before deleting it.");
     const submission = ownedSubmissions.find((item) => item.attemptId === attempt.id);
-    if (!submission || submission.status === "QUEUED" || submission.status === "JUDGING")
+    if (submission?.status === "QUEUED" || submission?.status === "JUDGING")
       throw new Error("Wait for all event submissions to finish judging before deleting the event.");
   }
   for (const attempt of ownedAttempts) {
     await withRecordLock("draft:" + attempt.id, () =>
       withRecordLock("submission:" + attempt.id, async () => {
-        const currentAttempt = await get<Attempt>("attempt", attempt.id);
         const currentSubmission = await get<Submission>("submission", attempt.id);
-        if (currentAttempt?.codingEndsAt && currentAttempt.codingEndsAt > Date.now())
-          throw new Error("Close the event and wait for its coding period to finish before deleting it.");
         if (currentSubmission && ["QUEUED", "JUDGING"].includes(currentSubmission.status))
           throw new Error("Wait for all event submissions to finish judging before deleting the event.");
         await remove("submission", attempt.id);
@@ -409,10 +404,13 @@ export async function handle(method: string, route: string, body: Record<string,
             throw new Error("Close the currently open event before opening another.");
           const attempts = await list<Attempt>("attempt");
           const submissions = await list<Submission>("submission");
-          const unfinishedOtherEvent = attempts.some((attempt) => {
-            if (attempt.contestId === event.id) return false;
-            const submission = submissions.find((item) => item.attemptId === attempt.id);
-            return attempt.codingEndsAt > Date.now() || submission?.status === "QUEUED" || submission?.status === "JUDGING";
+          const unfinishedOtherEvent = contests.some((otherEvent) => {
+            if (otherEvent.id === event.id || !otherEvent.roundId) return false;
+            return attempts.some((attempt) => {
+              if (attempt.contestId !== otherEvent.id || attempt.roundId !== otherEvent.roundId) return false;
+              const submission = submissions.find((item) => item.attemptId === attempt.id);
+              return attempt.codingEndsAt > Date.now() || submission?.status === "QUEUED" || submission?.status === "JUDGING";
+            });
           });
           if (unfinishedOtherEvent)
             throw new Error("Wait for the other event's timers and judging to finish before opening this one.");

@@ -1599,10 +1599,10 @@ function Admin() {
                 <p>Create events, choose one to edit, and open or close each event.</p>
               </div>
               <button className="button primary" disabled={busy} onClick={() => action(async () => {
-              await api("admin/contest/create", "POST", {});
+                await api("admin/contest/create", "POST", {});
                 setMessage("Event created with the three-number comparison challenge and test cases. Review or edit it, then open the event when ready.");
               })}>
-                <Plus /> New event
+              <Plus /> New event
               </button>
             </div>
             <div className="event-list">
@@ -1703,7 +1703,7 @@ function Admin() {
             <textarea
               name="source"
               required
-              defaultValue={data.contest?.source || ""}
+              defaultValue={data.contest?.source || `#include <stdio.h>\n\nint main(void) {\n    int first, second, third;\n    if (scanf("%d %d %d", &first, &second, &third) != 3) {\n        return 1;\n    }\n\n    if (first >= second && first >= third) {\n        printf("%d\\n", first);\n    } else if (second >= first && second >= third) {\n        printf("%d\\n", second);\n    } else {\n        printf("%d\\n", third);\n    }\n\n    return 0;\n}\n`}
               rows={14}
               spellCheck={false}
             />
@@ -1715,7 +1715,15 @@ function Admin() {
               required
               rows={8}
               defaultValue={JSON.stringify(
-                data.contest?.tests || [{ input: "5\n", output: "15", points: 1 }],
+                data.contest?.tests?.length
+                  ? data.contest.tests
+                  : [
+                      { input: "3 7 5\n", output: "7", points: 1 },
+                      { input: "12 4 9\n", output: "12", points: 1 },
+                      { input: "2 6 11\n", output: "11", points: 1 },
+                      { input: "8 8 3\n", output: "8", points: 1 },
+                      { input: "-4 -9 -2\n", output: "-2", points: 1 },
+                    ],
                 null,
                 2,
               )}
