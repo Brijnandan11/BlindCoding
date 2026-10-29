@@ -406,12 +406,12 @@ export async function handle(method: string, route: string, body: Record<string,
           const unfinishedOtherEvent = attempts.some((attempt) => {
             if (attempt.contestId === event.id) return false;
             const submission = submissions.find((item) => item.attemptId === attempt.id);
-            return attempt.codingEndsAt > Date.now() || !submission || submission.status === "QUEUED" || submission.status === "JUDGING";
+            return attempt.codingEndsAt > Date.now() || submission?.status === "QUEUED" || submission?.status === "JUDGING";
           });
           if (unfinishedOtherEvent)
             throw new Error("Wait for the other event's timers and judging to finish before opening this one.");
           if (!event.source || !event.tests?.length) throw new Error("Save the event source and test cases before opening it.");
-          if (event.status !== "OPEN" && event.startedAt) {
+          if (event.status !== "OPEN" && event.startedAt && event.roundId) {
             const previousAttempts = attempts.filter(
               (attempt) => attempt.contestId === event.id && attempt.roundId === event.roundId,
             );
@@ -419,7 +419,7 @@ export async function handle(method: string, route: string, body: Record<string,
               previousAttempts.some((attempt) => attempt.codingEndsAt > Date.now()) ||
               previousAttempts.some((attempt) => {
                 const submission = submissions.find((item) => item.attemptId === attempt.id);
-                return submission?.status !== "RESULT" && submission?.status !== "ERROR";
+                return submission?.status === "QUEUED" || submission?.status === "JUDGING";
               })
             )
               throw new Error("Wait for the event timer and judging to finish before reopening it.");
