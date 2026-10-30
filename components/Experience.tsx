@@ -505,10 +505,10 @@ function Instructions({ publicRules }: { publicRules: boolean }) {
   }, []);
   const rules = [
     "You compete individually. Each team nominates exactly three participants.",
-    `Study the given C program for ${timing.readingMinutes} minutes. The timer starts when you begin.`,
+    `Study the given C program for up to ${timing.readingMinutes} minutes. The shared timer starts when the organizer opens the event, so joining late does not reset it.`,
     `After ${timing.readingMinutes} minutes, the entire contest screen becomes black.`,
     "Recreate the program from memory. No code, timer, or cursor is shown.",
-    `You have up to ${timing.codingMinutes} minutes to type. Refreshing does not reset your timer.`,
+    `All participants share the same ${timing.codingMinutes}-minute coding window and deadline. Refreshing does not reset the timer.`,
     "Press Ctrl + Enter or F10 to submit. Only one final submission is allowed.",
     "Code match percentage determines your rank. Completion time breaks score ties.",
     "Submit early if you finish. Otherwise, your last saved code is compared with the reference code at the shared deadline.",
@@ -579,7 +579,7 @@ function Instructions({ publicRules }: { publicRules: boolean }) {
                   }
                 }}
               >
-                {loading ? "Starting…" : `Start my ${timing.readingMinutes} minutes`}
+                {loading ? "Entering…" : "Enter the challenge"}
                 <ArrowRight size={19} />
               </button>
               {error && (

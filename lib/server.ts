@@ -675,16 +675,27 @@ export async function handle(method: string, route: string, body: Record<string,
     let c = currentContest;
     if (c?.status !== "OPEN") throw new Error("The contest is not open yet.");
     if (!c) throw new Error("The contest is not open yet.");
+    if (!c.startedAt) {
+      await withRecordLock("contest-start", async () => {
+        const current = await get<Contest>("contest", c!.id);
+        if (current?.status !== "OPEN") throw new Error("The contest is not open yet.");
+        if (!current.startedAt) await put("contest", current.id, { ...current, startedAt: Date.now() });
+        c = await get<Contest>("contest", current.id);
+      });
+    }
+    if (!c?.startedAt) throw new Error("The contest is not open yet.");
     const timing = contestTiming(c);
-    const attemptStart = Date.now();
+    const contestStart = c.startedAt;
+    if (Date.now() >= contestStart + timing.readingMs + timing.codingMs)
+      throw new Error("This contest has ended. Contact the organizer.");
     const attempt: Attempt = {
       id: id(p.id + c.id + (c.roundId || "")),
       participantId: p.id,
       contestId: c.id,
       roundId: c.roundId,
-      startedAt: attemptStart,
-      viewingEndsAt: attemptStart + timing.readingMs,
-      codingEndsAt: attemptStart + timing.readingMs + timing.codingMs,
+      startedAt: contestStart,
+      viewingEndsAt: contestStart + timing.readingMs,
+      codingEndsAt: contestStart + timing.readingMs + timing.codingMs,
       challengeSource: c.source,
       challengeTests: c.tests,
       draft: "",
